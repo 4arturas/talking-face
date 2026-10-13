@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Google Translate TTS returns 404 when a Referer header is sent -->
+<meta name="referrer" content="no-referrer">
+<title>Kalbantys 3D avatarai (nemokamai)</title>
+<!--
+  PASTABOS
+  - Nemokamas variantas be API rakto: 3D avatarai iš atviro projekto TalkingHead (github.com/met4citizen/TalkingHead).
+    Modeliai turi Oculus vizemų (viseme_aa, viseme_PP ...) ir ARKit (eyeBlinkLeft, jawOpen ...) formas
+    bei Mixamo skeletą (Head, Neck, LeftEye ...). Juos valdome patys: kalba – naršyklės speechSynthesis,
+    burna – pagal raides (onstart/onboundary/onend), mikrofono režime – pagal garsumą (RMS).
+  - Licencijos: brunette, brunette-t, saule (perdažyta brunette), avaturn, avatarsdk, vroid – tik nekomerciniam naudojimui (CC BY-NC 4.0 ir pan.);
+    mpfb (MakeHuman) – CC0.
+  - Reikia interneto: three.js iš cdn.jsdelivr.net, modeliai iš raw.githubusercontent.com (2–37 MB).
+  - Kalba veikia per file://. Mikrofonui gali reikėti localhost:
+        python -m http.server 8000   ->   http://localhost:8000/talking-face-avatars.html
+-->
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    color: #263238;
+    background: radial-gradient(circle at 30% 30%, #4a5866, #1d242b 70%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    padding: 24px;
+    flex-wrap: wrap;
+  }
+  #view {
+    width: min(560px, 92vw);
+    height: min(620px, 80vh);
+    border-radius: 18px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  }
+  #view canvas { display: block; }
+  #loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #dfe6ec;
+    font-size: 15px;
+    pointer-events: none;
+    text-align: center;
+    padding: 20px;
+  }
+  .panel {
+    width: min(380px, 92vw);
+    background: #fff;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .3);
+  }
+  h1 { font-size: 20px; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+  select, textarea {
+    width: 100%;
+    font: inherit;
+    padding: 8px 10px;
+    border: 1px solid #c5ced6;
+    border-radius: 8px;
+  }
+  textarea { height: 90px; resize: vertical; }
+  .buttons { display: flex; gap: 8px; margin-top: 12px; }
+  button {
+    flex: 1;
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    border: 0;
+    border-radius: 8px;
+    padding: 10px;
+    cursor: pointer;
+  }
+  #speakBtn { background: #2f7de1; }
+  #micBtn { background: #6c4ccf; }
+  #micBtn.active { background: #3f2a8f; }
+  #stopBtn { background: #d9434b; }
+  .note { font-size: 13px; margin-top: 8px; min-height: 18px; color: #4b5b66; }
+  .note.warn { color: #b0640c; }
+  .meter { height: 6px; background: #e3e8ec; border-radius: 3px; margin-top: 10px; overflow: hidden; visibility: hidden; }
+  .meter.on { visibility: visible; }
+  #meterBar { height: 100%; width: 0; background: #6c4ccf; }
+  .hint { font-size: 12px; color: #7a8a96; margin-top: 12px; }
+  h2 { font-size: 16px; margin: 18px 0 4px; padding-top: 12px; border-top: 1px solid #e3e8ec; }
+  #chatLog {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #e3e8ec;
+    border-radius: 8px;
+    padding: 6px;
+    font-size: 13px;
+    display: none;
+  }
+  #chatLog.on { display: block; }
+  .msg { padding: 5px 8px; border-radius: 8px; margin: 4px 0; white-space: pre-wrap; }
+  .msg.user { background: #e8f1fc; margin-left: 30px; }
+  .msg.bot { background: #f1eefb; margin-right: 30px; }
+  #question { height: 54px; }
+  #askBtn { background: #1f9d74; }
+  #askBtn:disabled { background: #9cc9b9; cursor: default; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="view"><div id="loading">Įkeliamas avataras…</div></div>
+
+<div class="panel">
+  <h1>Kalbantys 3D avatarai</h1>
+  <label for="avatar">Avataras</label>
+  <select id="avatar">
+    <option value="brunette">Brunetė (Ready Player Me, 4,7 MB)</option>
+    <option value="brunette-t">Brunetė, T poza (Ready Player Me, 2,9 MB)</option>
+    <option value="avaturn">Avaturn (13,8 MB)</option>
+    <option value="avatarsdk">AvatarSDK (12,3 MB)</option>
+    <option value="vroid">VRoid, anime (2,3 MB)</option>
+    <option value="mpfb">MakeHuman / MPFB (36,8 MB)</option>
+    <option value="ona">Ona – savas, MPFB (12,3 MB)</option>
+    <option value="saule">Saulė – sava, Ready Player Me (5,1 MB)</option>
+  </select>
+  <div id="avatarNote" class="note"></div>
+  <label for="lang">Kalba</label>
+  <select id="lang">
+    <option value="lt-LT">lt-LT (lietuvių)</option>
+    <option value="en-US">en-US (English)</option>
+  </select>
+  <div id="voiceNote" class="note"></div>
+  <label for="text">Tekstas</label>
+  <textarea id="text">Labas! Aš esu kalbantis avataras. Ar girdi mane?</textarea>
+  <div class="buttons">
+    <button id="speakBtn" type="button">Kalbėk</button>
+    <button id="micBtn" type="button">Mikrofonas</button>
+    <button id="stopBtn" type="button">Stop</button>
+  </div>
+  <div id="meter" class="meter"><div id="meterBar"></div></div>
+  <div id="status" class="note"></div>
+
+  <h2>Pokalbis su vietiniu modeliu (Ollama)</h2>
+  <label for="model">Modelis</label>
+  <select id="model"><option value="">Ieškoma Ollama…</option></select>
+  <div id="chatLog"></div>
+  <label for="question">Klausimas</label>
+  <textarea id="question" placeholder="Paklausk ko nors… (Enter – siųsti, Shift+Enter – nauja eilutė)"></textarea>
+  <div class="buttons"><button id="askBtn" type="button">Klausti</button></div>
+  <div id="chatNote" class="note"></div>
+
+  <div class="hint">Pele galima sukti vaizdą, ratuku – priartinti. Ctrl+Enter – ištarti tekstą.
+    Reikia interneto. Mikrofonui per file:// gali reikėti localhost.
+    Pokalbiui puslapį atidaryk per localhost (pvz. <code>python -m http.server</code>) – Ollama neleidžia užklausų iš file://.
+    Modeliai: <a href="https://github.com/met4citizen/TalkingHead" target="_blank" rel="noopener">TalkingHead</a>.
+    <a href="talking-face.html">2D veidai</a> ·     <a href="talking-face-3d.html">3D veidas</a></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+// Konkretus commit'as, kad modeliai nepasikeistų.
+const BASE = 'https://raw.githubusercontent.com/met4citizen/TalkingHead/cf170209c49f8f67f96e3ed55bd7e9db06c5b2b3/avatars/';
+const AVATARS = {
+  brunette:  'Ready Player Me. Licencija CC BY-NC 4.0 – tik nekomerciniam naudojimui.',
+  'brunette-t': 'Ready Player Me, T poza (rankos nuleidžiamos kode). Licencija CC BY-NC 4.0 – tik nekomerciniam naudojimui.',
+  avaturn:   'Avaturn. Tik nekomerciniam naudojimui.',
+  avatarsdk: 'AvatarSDK. Tik nekomerciniam naudojimui.',
+  vroid:     'VRoid Studio. Tik nekomerciniam naudojimui.',
+  mpfb:      'MakeHuman / MPFB. Licencija CC0 – galima naudoti laisvai.',
+  ona:       'Savas avataras (blender/make_avatar.py, MPFB, CC0). Reikia localhost.',
+  saule:     'Perdažyta Brunetė (tools/make_rpm_variant.py): šviesūs plaukai, be akinių. ' +
+             'Licencija CC BY-NC 4.0 (Ready Player Me / met4citizen TalkingHead) – tik nekomerciniam naudojimui. Reikia localhost.'
+};
+// Savi avatarai iš šio projekto aplanko (sukurti blender/make_avatar.py).
+const LOCAL_AVATARS = { ona: 'avatars/ona.glb', saule: 'avatars/saule.glb' };
+
+const $ = id => document.getElementById(id);
+const RATE = 1;
+const MS_PER_CHAR = 72;
+const EYE_YAW = 0.35;
+const EYE_PITCH = 0.2;
+const DEFAULT_TEXT = {
+  'lt-LT': 'Labas! Aš esu kalbantis avataras. Ar girdi mane?',
+  'en-US': 'Hello! I am a talking avatar. Can you hear me?'
+};
+
+// Vizemos -> formų reikšmės (Oculus vizemos + šiek tiek jawOpen).
+const VISEMES = {
+  sil: {},
+  aa: { viseme_aa: .9, jawOpen: .15 },
+  O:  { viseme_O: .9, jawOpen: .1 },
+  U:  { viseme_U: .9 },
+  E:  { viseme_E: .85, jawOpen: .05 },
+  I:  { viseme_I: .85 },
+  PP: { viseme_PP: 1 },
+  FF: { viseme_FF: .9 },
+  DD: { viseme_DD: .8 },
+  kk: { viseme_kk: .8 },
+  CH: { viseme_CH: .85 },
+  SS: { viseme_SS: .8 },
+  nn: { viseme_nn: .8 },
+  RR: { viseme_RR: .8 },
+  TH: { viseme_TH: .8 }
+};
+const MOUTH_KEYS = ['viseme_aa', 'viseme_O', 'viseme_U', 'viseme_E', 'viseme_I', 'viseme_PP', 'viseme_FF',
+  'viseme_DD', 'viseme_kk', 'viseme_CH', 'viseme_SS', 'viseme_nn', 'viseme_RR', 'viseme_TH', 'jawOpen'];
+const VOWELS = new Set(['aa', 'O', 'U', 'E', 'I']);
+
+const mouth = Object.fromEntries(MOUTH_KEYS.map(k => [k, 0]));
+const state = {
+  speaking: false,
+  utterance: null,
+  frames: [],
+  brows: [],
+  mic: null,
+  micLevel: 0,
+  noise: 0.01,
+  mouse: { x: 0, y: 0 },
+  lastMouse: -1e9,
+  gaze: { x: 0, y: 0 },
+  look: { x: 0, y: 0 },
+  nextSaccade: performance.now() + 800,
+  sway: 0,
+  brow: 0,
+  nextBlink: performance.now() + 2000 + Math.random() * 4000,
+  blinkStart: -1e9
+};
+
+/* ---------- 3D scena ---------- */
+
+const view = $('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(view.clientWidth, view.clientHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+view.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x5b6670);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+const key = new THREE.DirectionalLight(0xffffff, 1.2);
+key.position.set(1, 2, 3);
+scene.add(key);
+
+const camera = new THREE.PerspectiveCamera(30, view.clientWidth / view.clientHeight, 0.05, 50);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+let avatar = null;          // įkeltas modelis
+let morphs = new Map();     // formos vardas -> [{ infl, idx }] (galva, dantys, akys valdomos kartu)
+let rig = null;             // { head, neck, eyes: [] } – kaulai su pradinėmis pozomis
+let loadToken = 0;
+
+function setMorph(name, value) {
+  const list = morphs.get(name);
+  if (list) for (const m of list) m.infl[m.idx] = value;
+}
+function setPair(name, value) {
+  setMorph(name + 'Left', value);
+  setMorph(name + 'Right', value);
+}
+
+function findBone(root, name) {
+  let found = null;
+  root.traverse(o => { if (!found && o.isBone && o.name === name) found = o; });
+  return found;
+}
+
+// Kaulas su pradine poza ir tėvo pasauline rotacija: leidžia sukti pasaulio ašimis,
+// nepriklausomai nuo to, kaip orientuotos kaulo vietinės ašys skirtinguose modeliuose.
+function boneRef(bone) {
+  if (!bone) return null;
+  const parentQ = new THREE.Quaternion();
+  bone.parent.getWorldQuaternion(parentQ);
+  return { bone, base: bone.quaternion.clone(), parentQ, parentInv: parentQ.clone().invert() };
+}
+
+const _e = new THREE.Euler();
+const _q = new THREE.Quaternion();
+function rotateWorld(ref, pitch, yaw, roll) {
+  if (!ref) return;
+  _q.setFromEuler(_e.set(pitch, yaw, roll, 'YXZ'));
+  // local = P⁻¹ · D · P · base
+  ref.bone.quaternion.copy(ref.parentInv).multiply(_q).multiply(ref.parentQ).multiply(ref.base);
+}
+
+// T-poza -> rankos nuleistos žemyn (žastas pasukamas pasaulio koordinatėse link apačios).
+function lowerArm(root, side) {
+  const arm = findBone(root, side + 'Arm');
+  const fore = findBone(root, side + 'ForeArm');
+  if (!arm || !fore) return;
+  root.updateMatrixWorld(true);
+  const a = arm.getWorldPosition(new THREE.Vector3());
+  const f = fore.getWorldPosition(new THREE.Vector3());
+  const dir = f.sub(a).normalize();
+  if (dir.y < -0.8) return;   // jau nuleista
+  const target = new THREE.Vector3(Math.sign(dir.x) * 0.18, -1, 0.05).normalize();
+  const delta = new THREE.Quaternion().setFromUnitVectors(dir, target);
+  const parentQ = arm.parent.getWorldQuaternion(new THREE.Quaternion());
+  const worldQ = arm.getWorldQuaternion(new THREE.Quaternion());
+  arm.quaternion.copy(parentQ.invert().multiply(delta).multiply(worldQ));
+}
+
+function disposeAvatar(obj) {
+  obj.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+    for (const m of mats) {
+      for (const v of Object.values(m)) if (v && v.isTexture) v.dispose();
+      m.dispose();
+    }
+  });
+}
+
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+
+function loadAvatar(id) {
+  const token = ++loadToken;
+  $('avatarNote').textContent = AVATARS[id];
+  let overlay = $('loading');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'loading';
+    view.appendChild(overlay);
+  }
+  overlay.textContent = 'Įkeliamas avataras…';
+
+  loader.load(LOCAL_AVATARS[id] || BASE + id + '.glb', gltf => {
+    if (token !== loadToken) return disposeAvatar(gltf.scene);
+    if (avatar) {
+      scene.remove(avatar);
+      disposeAvatar(avatar);
+    }
+    avatar = gltf.scene;
+    scene.add(avatar);
+    avatar.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+
+    lowerArm(avatar, 'Left');
+    lowerArm(avatar, 'Right');
+    avatar.updateMatrixWorld(true);
+
+    const newMorphs = new Map();
+    avatar.traverse(o => {
+      if (!o.morphTargetDictionary) return;
+      for (const [k, idx] of Object.entries(o.morphTargetDictionary)) {
+        if (!newMorphs.has(k)) newMorphs.set(k, []);
+        newMorphs.get(k).push({ infl: o.morphTargetInfluences, idx });
+      }
+    });
+    morphs = newMorphs;
+    for (const k of MOUTH_KEYS) mouth[k] = 0;
+
+    const head = findBone(avatar, 'Head');
+    rig = {
+      head: boneRef(head),
+      neck: boneRef(findBone(avatar, 'Neck')),
+      eyes: ['LeftEye', 'RightEye'].map(n => boneRef(findBone(avatar, n))).filter(Boolean)
+    };
+    frameHead(head);
+    $('loading')?.remove();
+  }, e => {
+    if (token !== loadToken || !e.total) return;
+    overlay.textContent = `Įkeliamas avataras… ${Math.round(e.loaded / e.total * 100)} %`;
+  }, err => {
+    if (token !== loadToken) return;
+    overlay.textContent = 'Nepavyko įkelti avataro (reikia interneto).';
+    console.error(err);
+  });
+}
+
+// Kamera nukreipiama į galvą ir pečius; atstumas pagal modelio aukštį.
+function frameHead(head) {
+  const box = new THREE.Box3().setFromObject(avatar);
+  const height = box.max.y - box.min.y || 1.7;
+  const p = head ? head.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(0, box.max.y - height * 0.1, 0);
+  const target = p.clone().add(new THREE.Vector3(0, height * 0.02, 0));
+  controls.target.copy(target);
+  camera.position.copy(target).add(new THREE.Vector3(0, height * 0.01, height * 0.6));
+  controls.minDistance = height * 0.15;
+  controls.maxDistance = height * 2;
+  controls.update();
+}
+
+addEventListener('resize', () => {
+  renderer.setSize(view.clientWidth, view.clientHeight);
+  camera.aspect = view.clientWidth / view.clientHeight;
+  camera.updateProjectionMatrix();
+});
+
+view.addEventListener('pointermove', e => {
+  const r = view.getBoundingClientRect();
+  state.mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  state.mouse.y = ((e.clientY - r.top) / r.height) * 2 - 1;
+  state.lastMouse = performance.now();
+});
+
+/* ---------- Vizemos ---------- */
+
+function visemeFor(ch) {
+  const low = ch.toLowerCase();
+  if ('čšžćś'.includes(low)) return 'CH';
+  const c = low.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (c === 'a') return 'aa';
+  if (c === 'o') return 'O';
+  if (c === 'u' || c === 'w') return 'U';
+  if (c === 'e') return 'E';
+  if (c === 'i' || c === 'y') return 'I';
+  if ('mbp'.includes(c)) return 'PP';
+  if ('fv'.includes(c)) return 'FF';
+  if ('td'.includes(c)) return 'DD';
+  if ('kgh'.includes(c) || c === 'q' || c === 'x') return 'kk';
+  if ('cj'.includes(c)) return 'CH';
+  if ('sz'.includes(c)) return 'SS';
+  if ('nl'.includes(c)) return 'nn';
+  if (c === 'r') return 'RR';
+  if (/\p{L}/u.test(c)) return 'DD';
+  return null;
+}
+
+function charDuration(v) {
+  const base = MS_PER_CHAR / RATE;
+  return VOWELS.has(v) ? base * 1.35 : base * 0.8;
+}
+
+// Tekstą paverčia laiko eile [{t, v}]. withPauses – pauzės ties tarpais/skyryba (spėjimas be onboundary).
+function schedule(text, t0, withPauses) {
+  const out = [];
+  let t = t0;
+  for (const ch of text) {
+    const v = visemeFor(ch);
+    if (v) {
+      out.push({ t, v });
+      t += charDuration(v);
+    } else if (withPauses) {
+      if (ch === '?' || ch === '!') addBrow(t);
+      const pause = /[.,;:?!…]/.test(ch) ? 260 : (/\s/.test(ch) ? 60 : 0);
+      if (pause) {
+        out.push({ t, v: 'sil' });
+        t += pause / RATE;
+      }
+    }
+  }
+  out.push({ t, v: 'sil' });
+  return out;
+}
+
+function visemeAt(now) {
+  let v = 'sil';
+  for (const f of state.frames) {
+    if (f.t > now) break;
+    v = f.v;
+  }
+  return VISEMES[v];
+}
+
+function addBrow(from) {
+  state.brows.push({ from, to: from + 900 });
+}
+
+// Žodžio riba: suplanuojame tik šį žodį nuo dabar – sinchronizacija atsistato ties kiekvienu žodžiu.
+function onWord(text, index, length) {
+  const rest = text.slice(index);
+  const match = rest.match(/^[\p{L}\p{N}'’-]+/u);
+  const word = length ? text.substr(index, length) : (match ? match[0] : rest.split(/\s/)[0]);
+  const now = performance.now();
+  state.frames = schedule(word, now, false);
+  const wordDur = state.frames[state.frames.length - 1].t - now;
+  const after = (text.slice(index + word.length).match(/^[^\p{L}\p{N}]*/u) || [''])[0];
+  if (/[?!]/.test(word + after)) addBrow(now + wordDur * 0.6);
+}
+
+/* ---------- Kalba ---------- */
+
+function pickVoice(lang) {
+  const voices = speechSynthesis.getVoices();
+  const norm = s => s.replace('_', '-').toLowerCase();
+  const prefix = lang.slice(0, 2).toLowerCase();
+  const voice = voices.find(v => norm(v.lang) === lang.toLowerCase())
+    || voices.find(v => norm(v.lang).startsWith(prefix));
+  if (voice) return { voice, fallback: false };
+  return { voice: voices[0] || null, fallback: true };
+}
+
+function setNote(el, text, warn) {
+  el.textContent = text;
+  el.classList.toggle('warn', !!warn);
+}
+
+function describeVoice() {
+  if (!('speechSynthesis' in window)) {
+    setNote($('voiceNote'), 'Ši naršyklė nepalaiko speechSynthesis.', true);
+    return;
+  }
+  const lang = $('lang').value;
+  const { voice, fallback } = pickVoice(lang);
+  if (!voice) setNote($('voiceNote'), 'Balsai dar neįkelti arba sistemoje jų nėra.', true);
+  else if (fallback) setNote($('voiceNote'), `Naršyklė neturi ${lang} balso – naudojamas Google Translate balsas `
+    + '(reikia interneto, tekstas siunčiamas Google). Microsoft Edge turi savus lietuviškus balsus.', true);
+  else setNote($('voiceNote'), `Balsas: ${voice.name} (${voice.lang})`, false);
+}
+
+function speak() {
+  const text = $('text').value.trim();
+  if (!text || !('speechSynthesis' in window)) return;
+  stopChat();
+  stopMic();
+  stopSpeech();
+  speakText(text);
+}
+
+// Google Translate TTS (neoficialus): naudojamas, kai naršyklė neturi balso pasirinktai kalbai.
+// Tekstas siunčiamas Google. Vienai užklausai – iki ~200 simbolių, todėl tekstą skaidome.
+const GOOGLE_TTS_MAX = 190;
+
+function splitForTts(text) {
+  const parts = [];
+  let rest = text.trim();
+  while (rest.length > GOOGLE_TTS_MAX) {
+    const head = rest.slice(0, GOOGLE_TTS_MAX);
+    let cut = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '), head.lastIndexOf(', '));
+    if (cut < GOOGLE_TTS_MAX / 3) cut = head.lastIndexOf(' ');
+    if (cut <= 0) cut = GOOGLE_TTS_MAX - 1;
+    parts.push(rest.slice(0, cut + 1).trim());
+    rest = rest.slice(cut + 1).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+function speakGoogle(text, lang, onDone) {
+  const token = {};
+  const parts = splitForTts(text);
+  state.utterance = token;
+
+  const finish = error => {
+    if (state.utterance !== token) return;
+    state.speaking = false;
+    state.frames = [];
+    state.utterance = null;
+    state.audio = null;
+    setNote($('status'), error ? `Google TTS klaida: ${error}` : 'Baigta.', !!error);
+    if (onDone) onDone();
+  };
+
+  const playPart = i => {
+    if (state.utterance !== token) return;
+    if (i >= parts.length) return finish();
+    const part = parts[i];
+    const audio = new Audio('https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob'
+      + `&tl=${encodeURIComponent(lang.slice(0, 2))}&q=${encodeURIComponent(part)}`);
+    state.audio = audio;
+    audio.onplaying = () => {
+      if (state.utterance !== token) return;
+      const now = performance.now();
+      const frames = schedule(part, now, true);
+      const estimated = frames[frames.length - 1].t - now;
+      const actual = (audio.duration || 0) * 1000;
+      const k = estimated > 0 && actual > 0 && isFinite(actual) ? actual / estimated : 1;
+      frames.forEach(f => { f.t = now + (f.t - now) * k; });
+      state.frames = frames;
+      state.speaking = true;
+      setNote($('status'), 'Kalbu… (Google TTS)', false);
+    };
+    audio.onended = () => playPart(i + 1);
+    audio.onerror = () => finish('nepavyko gauti garso (ar yra internetas?)');
+    audio.play().catch(e => finish(e.message));
+  };
+  playPart(0);
+}
+
+// Ištaria vieną tekstą; onDone kviečiamas tik jei kalba baigėsi natūraliai (ne nutraukta).
+function speakText(text, onDone) {
+  const lang = $('lang').value;
+  const { voice, fallback } = pickVoice(lang);
+  if (fallback) return speakGoogle(text, lang, onDone);
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = voice && fallback ? voice.lang : lang;
+  if (voice) u.voice = voice;
+  u.rate = RATE;
+
+  u.onstart = () => {
+    if (state.utterance !== u) return;
+    state.speaking = true;
+    state.frames = schedule(text, performance.now(), true);
+    setNote($('status'), 'Kalbu…', false);
+  };
+  u.onboundary = e => {
+    if (state.utterance !== u || (e.name && e.name !== 'word')) return;
+    state.brows = state.brows.filter(b => b.from <= performance.now());
+    onWord(text, e.charIndex, e.charLength);
+  };
+  u.onend = u.onerror = e => {
+    if (state.utterance !== u) return;
+    state.speaking = false;
+    state.frames = [];
+    state.utterance = null;
+    const failed = e.type === 'error' && e.error !== 'interrupted' && e.error !== 'canceled';
+    setNote($('status'), failed ? `Kalbos klaida: ${e.error}` : 'Baigta.', failed);
+    if (onDone) onDone();
+  };
+
+  state.utterance = u;   // nuoroda, kad Chrome nesurinktų jos kaip šiukšlės
+  speechSynthesis.speak(u);
+}
+
+function stopSpeech() {
+  chat.queue = [];
+  state.utterance = null;
+  state.speaking = false;
+  state.frames = [];
+  if (state.audio) { state.audio.pause(); state.audio = null; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+}
+
+/* ---------- Pokalbis su Ollama ---------- */
+
+const OLLAMA = 'http://localhost:11434';
+const PREFERRED_MODELS = ['gemma4:e2b', 'gemma4:e4b', 'llama3.2:latest', 'qwen3.5:latest'];
+const chat = { history: [], queue: [], controller: null };
+
+const SYSTEM_PROMPT = {
+  'lt-LT': 'Tu esi draugiškas kalbantis avataras. Atsakyk lietuviškai, trumpai (1–3 sakiniai), '
+    + 'paprastu tekstu: be markdown, sąrašų, emoji ir kodo, nes atsakymas bus ištartas balsu.',
+  'en-US': 'You are a friendly talking avatar. Answer in English, briefly (1–3 sentences), '
+    + 'in plain text: no markdown, lists, emoji or code, because the answer will be spoken aloud.'
+};
+
+async function loadModels() {
+  const sel = $('model');
+  try {
+    const res = await fetch(`${OLLAMA}/api/tags`);
+    const names = (await res.json()).models.map(m => m.name).sort();
+    if (!names.length) throw new Error('nėra atsisiųstų modelių');
+    sel.innerHTML = names.map(n => `<option>${n}</option>`).join('');
+    sel.value = PREFERRED_MODELS.find(n => names.includes(n)) || names[0];
+    setNote($('chatNote'), '', false);
+  } catch (e) {
+    sel.innerHTML = '<option value="">Ollama nepasiekiama</option>';
+    setNote($('chatNote'), location.protocol === 'file:'
+      ? 'Atidaryk puslapį per localhost (python -m http.server) – iš file:// Ollama užklausų neleidžia.'
+      : `Ollama nepasiekiama (${e.message}). Ar paleista „ollama serve“?`, true);
+  }
+}
+
+function addMessage(role, text) {
+  const log = $('chatLog');
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.textContent = text;
+  log.appendChild(div);
+  log.classList.add('on');
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+// Pašalina markdown simbolius, kad balsas jų neskaitytų.
+const cleanForSpeech = s => s.replace(/[*_#`>|~]/g, '').replace(/\s+/g, ' ').trim();
+
+function enqueueSentence(sentence) {
+  const s = cleanForSpeech(sentence);
+  if (!/[\p{L}\p{N}]/u.test(s)) return;
+  chat.queue.push(s);
+  if (!state.utterance) speakNextSentence();
+}
+
+function speakNextSentence() {
+  const s = chat.queue.shift();
+  if (s) speakText(s, speakNextSentence);
+}
+
+// Iš kaupiamo teksto ištraukia pilnus sakinius (baigiasi . ! ? … ir tarpu), likutį grąžina.
+function takeSentences(buffer) {
+  const re = /[.!?…]+["”»)]?\s+/g;
+  let last = 0, m;
+  while ((m = re.exec(buffer))) {
+    enqueueSentence(buffer.slice(last, m.index + m[0].length));
+    last = m.index + m[0].length;
+  }
+  return buffer.slice(last);
+}
+
+async function ask() {
+  const question = $('question').value.trim();
+  const model = $('model').value;
+  if (!question || !model || chat.controller) return;
+  stopMic();
+  stopSpeech();
+  $('question').value = '';
+  addMessage('user', question);
+  const botDiv = addMessage('bot', '…');
+  chat.history.push({ role: 'user', content: question });
+
+  chat.controller = new AbortController();
+  $('askBtn').disabled = true;
+  setNote($('chatNote'), `Galvoja ${model}… (pirmą kartą modelis įkeliamas ilgiau)`, false);
+
+  let answer = '', buffer = '';
+  try {
+    const res = await fetch(`${OLLAMA}/api/chat`, {
+      method: 'POST',
+      signal: chat.controller.signal,
+      body: JSON.stringify({
+        model,
+        stream: true,
+        think: false,
+        messages: [{ role: 'system', content: SYSTEM_PROMPT[$('lang').value] }, ...chat.history.slice(-10)]
+      })
+    });
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+
+    // Atsakymas ateina NDJSON eilutėmis; jos gali būti padalytos per kelis gabalus.
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const lines = pending.split('\n');
+      pending = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const data = JSON.parse(line);
+        if (data.error) throw new Error(data.error);
+        const piece = data.message?.content || '';
+        answer += piece;
+        buffer = takeSentences(buffer + piece);
+        botDiv.textContent = answer || '…';
+        $('chatLog').scrollTop = $('chatLog').scrollHeight;
+      }
+    }
+    enqueueSentence(buffer);
+    chat.history.push({ role: 'assistant', content: answer });
+    setNote($('chatNote'), '', false);
+  } catch (e) {
+    chat.history.pop();
+    if (e.name === 'AbortError') {
+      botDiv.textContent = (answer || '') + ' [nutraukta]';
+      setNote($('chatNote'), 'Atsakymas nutrauktas.', false);
+    } else {
+      botDiv.textContent = '⚠ ' + e.message;
+      setNote($('chatNote'), 'Nepavyko gauti atsakymo.', true);
+    }
+  } finally {
+    chat.controller = null;
+    $('askBtn').disabled = false;
+  }
+}
+
+function stopChat() {
+  if (chat.controller) chat.controller.abort();
+}
+
+/* ---------- Mikrofonas ---------- */
+
+async function toggleMic() {
+  if (state.mic) {
+    stopMic();
+    setNote($('status'), 'Mikrofonas išjungtas.', false);
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setNote($('status'), 'Mikrofonas nepasiekiamas. Atidarykite per http://localhost.', true);
+    return;
+  }
+  stopSpeech();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true }
+    });
+    const ctx = new AudioContext();
+    await ctx.resume();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    state.mic = { stream, ctx, analyser, buf: new Float32Array(analyser.fftSize) };
+    state.noise = 0.01;
+    $('micBtn').classList.add('active');
+    $('micBtn').textContent = 'Mikrofonas (įj.)';
+    $('meter').classList.add('on');
+    setNote($('status'), 'Klausau mikrofono…', false);
+  } catch (err) {
+    setNote($('status'), `Mikrofono įjungti nepavyko (${err.name}). Per file:// gali reikėti localhost.`, true);
+  }
+}
+
+function stopMic() {
+  const m = state.mic;
+  if (!m) return;
+  m.stream.getTracks().forEach(t => t.stop());
+  m.ctx.close();
+  state.mic = null;
+  $('micBtn').classList.remove('active');
+  $('micBtn').textContent = 'Mikrofonas';
+  $('meter').classList.remove('on');
+}
+
+function updateMic(dt) {
+  const m = state.mic;
+  if (!m) {
+    state.micLevel += (0 - state.micLevel) * (1 - Math.exp(-dt * 8));
+    return;
+  }
+  m.analyser.getFloatTimeDomainData(m.buf);
+  let sum = 0;
+  for (const x of m.buf) sum += x * x;
+  const rms = Math.sqrt(sum / m.buf.length);
+
+  // Triukšmo lygis greitai krinta ir lėtai kyla – foninis ūžesys burnos neatidaro.
+  state.noise = rms < state.noise ? rms : state.noise + (rms - state.noise) * dt * 0.3;
+  const raw = Math.min(1, Math.max(0, (rms - state.noise * 1.6 - 0.004) * 18));
+
+  // Asimetrinis lyginimas: greitai atsidaro, lėčiau užsidaro – burna nedreba.
+  const k = raw > state.micLevel ? 1 - Math.exp(-dt * 30) : 1 - Math.exp(-dt * 9);
+  state.micLevel += (raw - state.micLevel) * k;
+  $('meterBar').style.width = `${Math.round(state.micLevel * 100)}%`;
+}
+
+/* ---------- Animacija ---------- */
+
+function updateMouth(now, dt) {
+  let target;
+  if (state.mic) {
+    const l = state.micLevel;
+    target = { viseme_aa: l * 0.8, viseme_O: l * 0.2, jawOpen: l * 0.25 };
+  } else {
+    target = state.speaking ? visemeAt(now) : VISEMES.sil;
+  }
+  const k = 1 - Math.exp(-dt * 18);
+  for (const key of MOUTH_KEYS) {
+    mouth[key] += ((target[key] || 0) - mouth[key]) * k;
+    setMorph(key, mouth[key]);
+  }
+  setPair('mouthSmile', 0.12);
+}
+
+function updateEyes(now, dt) {
+  // Mirksėjimas kas 2–6 s; kartais dvigubas.
+  if (now > state.nextBlink) {
+    state.blinkStart = now;
+    state.nextBlink = now + 2000 + Math.random() * 4000;
+    if (Math.random() < 0.15) state.nextBlink = now + 260;
+  }
+  const bt = (now - state.blinkStart) / 180;
+  const blink = bt < 1 ? Math.sin(bt * Math.PI) : 0;
+
+  // Sakados: jei pelė nejuda, žvilgsnis pats šokinėja; kitaip seka pelę.
+  const idle = now - state.lastMouse > 2500;
+  if (now > state.nextSaccade) {
+    state.nextSaccade = now + 500 + Math.random() * 2500;
+    const center = Math.random() < 0.4;
+    state.gaze.x = center ? 0 : (Math.random() * 2 - 1) * (idle ? 0.6 : 0.12);
+    state.gaze.y = center ? 0 : (Math.random() * 2 - 1) * (idle ? 0.35 : 0.08);
+  }
+  const tx = idle ? state.gaze.x : state.mouse.x + state.gaze.x;
+  const ty = idle ? state.gaze.y : state.mouse.y + state.gaze.y;
+  const k = 1 - Math.exp(-dt * (idle ? 16 : 4));
+  state.look.x += (Math.max(-1, Math.min(1, tx)) - state.look.x) * k;
+  state.look.y += (Math.max(-1, Math.min(1, ty)) - state.look.y) * k;
+
+  // Avataras žiūri į +Z, jo kairė – pasaulio +X (ekrano dešinė).
+  const x = state.look.x, y = state.look.y;
+  setMorph('eyeLookOutLeft', Math.max(0, x) * 0.5);
+  setMorph('eyeLookInRight', Math.max(0, x) * 0.5);
+  setMorph('eyeLookInLeft', Math.max(0, -x) * 0.5);
+  setMorph('eyeLookOutRight', Math.max(0, -x) * 0.5);
+  setPair('eyeLookUp', Math.max(0, -y) * 0.5);
+  setPair('eyeLookDown', Math.max(0, y) * 0.5);
+  // Žiūrint žemyn vokai šiek tiek nusileidžia.
+  setPair('eyeBlink', Math.min(1, blink + Math.max(0, y) * 0.25));
+
+  for (const e of rig.eyes) rotateWorld(e, y * EYE_PITCH, x * EYE_YAW, 0);
+}
+
+function updateBrows(now, dt) {
+  state.brows = state.brows.filter(b => now < b.to);
+  let target = 0;
+  for (const b of state.brows) if (now >= b.from) target = 1;
+  state.brow += (target - state.brow) * (1 - Math.exp(-dt * 10));
+  setMorph('browInnerUp', state.brow * 0.8);
+  setPair('browOuterUp', state.brow * 0.6);
+}
+
+function updateHead(now, dt) {
+  const active = state.speaking || state.micLevel > 0.05;
+  state.sway += ((active ? 1 : 0.3) - state.sway) * (1 - Math.exp(-dt * 3));
+  const t = now / 1000;
+  const pitch = state.look.y * 0.08 + Math.sin(t * 2.1) * 0.04 * state.sway;
+  const yaw = state.look.x * 0.15 + Math.sin(t * 1.3) * 0.06 * state.sway;
+  const roll = Math.sin(t * 0.9) * 0.04 * state.sway;
+  // Judesį padaliname tarp kaklo ir galvos – atrodo natūraliau.
+  rotateWorld(rig.neck, pitch * 0.4, yaw * 0.4, roll * 0.4);
+  rotateWorld(rig.head, pitch * 0.6, yaw * 0.6, roll * 0.6);
+}
+
+let last = performance.now();
+function tick(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  updateMic(dt);
+  if (avatar && rig) {
+    updateMouth(now, dt);
+    updateEyes(now, dt);
+    updateBrows(now, dt);
+    updateHead(now, dt);
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ---------- Valdikliai ---------- */
+
+$('speakBtn').addEventListener('click', speak);
+$('micBtn').addEventListener('click', toggleMic);
+$('stopBtn').addEventListener('click', () => {
+  stopChat();
+  stopSpeech();
+  stopMic();
+  setNote($('status'), 'Sustabdyta.', false);
+});
+$('askBtn').addEventListener('click', ask);
+$('question').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+});
+$('text').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.ctrlKey) speak();
+});
+$('lang').addEventListener('change', () => {
+  const t = $('text');
+  if (Object.values(DEFAULT_TEXT).includes(t.value.trim())) t.value = DEFAULT_TEXT[$('lang').value];
+  describeVoice();
+});
+$('avatar').addEventListener('change', () => loadAvatar($('avatar').value));
+if ('speechSynthesis' in window) speechSynthesis.addEventListener('voiceschanged', describeVoice);
+describeVoice();
+loadModels();
+loadAvatar($('avatar').value);
+
+// Testams iš konsolės.
+window.talkingFace = {
+  state, mouth, schedule, loadAvatar, chat, ask,
+  get morphs() { return morphs; },
+  get rig() { return rig; },
+  get avatar() { return avatar; }
+};
+</script>
+</body>
+</html>

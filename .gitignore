@@ -1,0 +1,32 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Downloaded source models and temp images (re-created by the scripts)
+blender/work/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node / Playwright test leftovers
+node_modules/
+.playwright-mcp/
+test-results/
+playwright-report/
+
+# Downloads and temp files
+*.zip
+*.tmp
+*.log
+
+# Secrets
+.env
+.env.*
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Google Translate TTS returns 404 when a Referer header is sent -->
+<meta name="referrer" content="no-referrer">
+<title>Kalbantis veidas</title>
+<!--
+  PASTABOS
+  - Kalba (speechSynthesis) veikia atidarius failą tiesiai per file:// Edge ir Chrome naršyklėse.
+  - Mikrofonui (getUserMedia) reikia „saugaus konteksto“. Jei per file:// naršyklė mikrofono
+    neleidžia, paleiskite vietinį serverį ir atidarykite per localhost, pvz.:
+        python -m http.server 8000      ->  http://localhost:8000/talking-face.html
+  - Lietuviškas balsas yra ne visur (Edge dažniausiai turi „Microsoft Ona / Leonas Online“).
+    Jei lt-LT balso nėra, naudojamas pirmas galimas balsas ir parodoma pastaba.
+-->
+<style>
+  :root {
+    --bg1: #dff3ff;
+    --bg2: #fde8ef;
+    --accent: #2f7de1;
+    --danger: #d9434b;
+    --text: #263238;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    color: var(--text);
+    background: linear-gradient(135deg, var(--bg1), var(--bg2));
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 24px;
+  }
+  #face {
+    width: min(420px, 90vw);
+    height: auto;
+    filter: drop-shadow(0 10px 18px rgba(0, 0, 0, .15));
+  }
+  #face:not(.robot) .robot-only, #face.robot .human-only { display: none; }
+  #face:not(.girl) .girl-only, #face.girl .boy-only { display: none; }
+  #face.robot #eyeL > ellipse, #face.robot #eyeR > ellipse {
+    fill: #e6fbff;
+    stroke: #346383;
+  }
+  #face.robot #pupilL circle:first-child, #face.robot #pupilR circle:first-child { fill: #127fa3; }
+  #face.robot #browL path, #face.robot #browR path { stroke: #127fa3; }
+  #face.robot #mouthOutline { stroke: #156486; }
+  #face.robot #mouthFill { fill: #122c49; }
+  #face.girl #browL path, #face.girl #browR path { stroke: #5a3043; stroke-width: 6; }
+  #face.girl #eyeL > ellipse, #face.girl #eyeR > ellipse { stroke: #5a3043; }
+  #face.girl #pupilL circle:first-child, #face.girl #pupilR circle:first-child { fill: #664575; }
+  #face.girl #mouthOutline { stroke: #ae4d68; }
+  #face.girl #mouthFill { fill: #9c284c; }
+  /* Tikroviškas veidas: geometrija (rx, ry, r) keičiama per CSS – veikia Chromium (Edge, Chrome) */
+  #face:not(.real) .real-only, #face.real .human-only { display: none; }
+  #face.real #eyeL > ellipse, #face.real #eyeR > ellipse, #face.real .eyeClip ellipse {
+    rx: 27px; ry: 14px;
+  }
+  #face.real #eyeL > ellipse, #face.real #eyeR > ellipse { fill: #f3ece7; stroke: #b98572; stroke-width: 1; }
+  #face.real #pupilL circle:first-child, #face.real #pupilR circle:first-child { r: 11px; fill: url(#irisGrad); }
+  #face.real #pupilL circle:last-child, #face.real #pupilR circle:last-child { r: 2.5px; opacity: .85; }
+  #face.real #browL path, #face.real #browR path { stroke: #3d261b; stroke-width: 6; opacity: .85; }
+  #face.real #mouthOutline { stroke: #b0605d; stroke-width: 7; }
+  #face.real #mouthFill { fill: #3d1416; }
+  #face.real #teeth { fill: #f1ebe2; }
+  #face.real #tongue { fill: #b9545e; }
+  .panel {
+    width: min(420px, 90vw);
+    background: #fff;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .08);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  h1 { margin: 0; font-size: 1.3rem; }
+  label { font-size: .9rem; font-weight: 600; }
+  textarea, select {
+    width: 100%;
+    font: inherit;
+    padding: 8px 10px;
+    border: 1px solid #c7d2da;
+    border-radius: 8px;
+  }
+  textarea { min-height: 90px; resize: vertical; }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    flex: 1;
+    font: inherit;
+    font-weight: 600;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    color: #fff;
+    background: var(--accent);
+    transition: transform .1s, opacity .2s;
+  }
+  button:active { transform: scale(.97); }
+  #micBtn { background: #6a4fc8; }
+  #micBtn.active { background: #2e9d5b; }
+  #stopBtn { background: var(--danger); }
+  .note { font-size: .85rem; min-height: 1.2em; color: #546e7a; }
+  .note.warn { color: #b26a00; }
+  .meter {
+    height: 8px;
+    border-radius: 4px;
+    background: #e3e9ee;
+    overflow: hidden;
+    visibility: hidden;
+  }
+  .meter.on { visibility: visible; }
+  #meterBar { height: 100%; width: 0; background: #2e9d5b; }
+  .hint { font-size: .8rem; color: #78909c; }
+</style>
+</head>
+<body>
+
+<svg id="face" viewBox="0 0 400 480" aria-label="Animuotas veidas">
+  <defs>
+    <clipPath id="mouthClip"><path id="mouthClipPath"/></clipPath>
+    <!-- Vyzdys apkerpamas pagal akies obuolį (tikroviškame veide jį dengia vokai) -->
+    <clipPath id="eyeClipL" class="eyeClip"><ellipse cx="140" cy="190" rx="30" ry="24"/></clipPath>
+    <clipPath id="eyeClipR" class="eyeClip"><ellipse cx="260" cy="190" rx="30" ry="24"/></clipPath>
+    <radialGradient id="skinGrad" cx="50%" cy="42%" r="62%">
+      <stop offset="0" stop-color="#f6d8c4"/>
+      <stop offset=".7" stop-color="#ebc1a7"/>
+      <stop offset="1" stop-color="#c98f75"/>
+    </radialGradient>
+    <linearGradient id="neckGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bb876d"/>
+      <stop offset=".45" stop-color="#e2b49b"/>
+    </linearGradient>
+    <linearGradient id="hairGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6b4430"/>
+      <stop offset=".5" stop-color="#4a2c1e"/>
+      <stop offset="1" stop-color="#2e1a11"/>
+    </linearGradient>
+    <radialGradient id="irisGrad">
+      <stop offset="0" stop-color="#111"/>
+      <stop offset=".32" stop-color="#111"/>
+      <stop offset=".36" stop-color="#6f8f6a"/>
+      <stop offset=".75" stop-color="#4c6b55"/>
+      <stop offset="1" stop-color="#1f2b24"/>
+    </radialGradient>
+    <filter id="blur6" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="blur2" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter>
+  </defs>
+
+  <!-- Kaklas ir pečiai nejuda -->
+  <path class="human-only boy-only" d="M60 480 Q70 420 160 410 L240 410 Q330 420 340 480 Z" fill="#4f86c6"/>
+  <rect class="human-only boy-only" x="170" y="370" width="60" height="50" rx="10" fill="#eab587"/>
+  <path class="girl-only" d="M52 480 Q68 418 156 408 H244 Q332 418 348 480 Z" fill="#b364ab"/>
+  <rect class="girl-only" x="170" y="370" width="60" height="50" rx="10" fill="#eab587"/>
+  <path class="robot-only" d="M48 480 Q70 420 154 410 H246 Q330 420 352 480 Z" fill="#346383"/>
+  <rect class="robot-only" x="167" y="378" width="66" height="52" rx="8" fill="#819eaf" stroke="#346383" stroke-width="4"/>
+  <g class="real-only">
+    <rect x="166" y="320" width="68" height="110" fill="url(#neckGrad)"/>
+    <path d="M40 480 Q55 425 150 412 Q200 440 250 412 Q345 425 360 480 Z" fill="#2f5560"/>
+    <path d="M150 412 Q200 440 250 412" fill="none" stroke="#1f3a42" stroke-width="3"/>
+  </g>
+
+  <g id="head">
+    <!-- Tikroviškas veidas: plaukai už galvos, oda su šešėliais, kirpčiukai -->
+    <g class="real-only">
+      <path d="M200 45 C90 45 52 140 58 240 C62 330 52 390       72 440 L150 440 C162 400 168 370 168 340
+                     L232 340 C232 370 238 400 250 440 L328 440 C348 390 338 330 342 240 C348 140 310 45 200 45 Z"
+            fill="url(#hairGrad)"/>
+      <path d="M200 70 C270 70 318 115 315 190 C313 250 300 300 268 340 C245 368 222 388 200 388
+               C178 388 155 368 132 340 C100 300 87 250 85 190 C82 115 130 70 200 70 Z"
+            fill="url(#skinGrad)"/>
+      <g filter="url(#blur6)">
+        <ellipse cx="140" cy="183" rx="40" ry="20" fill="#b47a62" opacity=".35"/>
+        <ellipse cx="260" cy="183" rx="40" ry="20" fill="#b47a62" opacity=".35"/>
+        <ellipse cx="122" cy="272" rx="26" ry="15" fill="#e48f80" opacity=".4"/>
+        <ellipse cx="278" cy="272" rx="26" ry="15" fill="#e48f80" opacity=".4"/>
+        <ellipse cx="200" cy="372" rx="32" ry="9" fill="#b47a62" opacity=".3"/>
+        <ellipse cx="200" cy="300" rx="16" ry="6" fill="#b47a62" opacity=".35"/>
+        <path d="M187 200 C184 225 181 245 178 258" stroke="#b07760" stroke-width="7" fill="none" opacity=".45"/>
+        <ellipse cx="200" cy="260" rx="13" ry="9" fill="#fbe0cf" opacity=".7"/>
+      </g>
+      <g fill="none" stroke="#a46a56" stroke-width="2" stroke-linecap="round" opacity=".8">
+        <path d="M181 260 C171 267 175 279 188 276"/>
+        <path d="M219 260 C229 267 225 279 212 276"/>
+      </g>
+      <ellipse cx="191" cy="274" rx="5" ry="2.5" fill="#6b3d32" opacity=".7"/>
+      <ellipse cx="209" cy="274" rx="5" ry="2.5" fill="#6b3d32" opacity=".7"/>
+      <g fill="none" stroke="#a46a56" stroke-width="1.5" opacity=".55">
+        <path d="M112 174 Q140 158 168 174"/>
+        <path d="M232 174 Q260 158 288 174"/>
+      </g>
+      <path d="M80 215 C70 120 120 55 200 52 C285 50 335 115 322 220 C315 175 300 140 275 118
+               C245 98 205 96 168 100 C150 115 125 140 108 175 C100 190 92 205 80 215 Z"
+            fill="url(#hairGrad)"/>
+      <g fill="none" stroke-linecap="round">
+        <path d="M170 62 C140 75 110 110 95 170" stroke="#2a170f" stroke-width="2" opacity=".35"/>
+        <path d="M215 60 C260 70 300 110 312 180" stroke="#2a170f" stroke-width="2" opacity=".35"/>
+        <path d="M190 58 C160 70 135 95 120 130" stroke="#9a6a4b" stroke-width="5" opacity=".35" filter="url(#blur2)"/>
+      </g>
+    </g>
+    <path class="girl-only" d="M69 141 Q75 42 200 48 Q325 42 331 141
+      Q359 286 347 433 Q316 450 290 418 Q278 385 289 346
+      H111 Q122 385 110 418 Q84 450 53 433 Q41 286 69 141 Z"
+      fill="#513043" stroke="#42273a" stroke-width="4"/>
+    <g class="human-only">
+      <ellipse cx="62" cy="235" rx="22" ry="36" fill="#f3c08f" stroke="#c98e5d" stroke-width="4"/>
+      <ellipse cx="338" cy="235" rx="22" ry="36" fill="#f3c08f" stroke="#c98e5d" stroke-width="4"/>
+      <ellipse cx="200" cy="225" rx="140" ry="170" fill="#f6c99b" stroke="#c98e5d" stroke-width="4"/>
+    </g>
+    <g class="robot-only">
+      <path d="M200 65 V42" stroke="#346383" stroke-width="9" stroke-linecap="round"/>
+      <circle cx="200" cy="34" r="13" fill="#35d4e4" stroke="#346383" stroke-width="4"/>
+      <rect x="38" y="214" width="35" height="54" rx="9" fill="#6c90a7" stroke="#346383" stroke-width="4"/>
+      <rect x="327" y="214" width="35" height="54" rx="9" fill="#6c90a7" stroke="#346383" stroke-width="4"/>
+      <rect x="62" y="64" width="276" height="326" rx="54" fill="#b7d5df" stroke="#346383" stroke-width="6"/>
+      <rect x="80" y="122" width="240" height="244" rx="34" fill="#dceef0" stroke="#719aa9" stroke-width="4"/>
+      <circle cx="97" cy="102" r="6" fill="#346383"/>
+      <circle cx="303" cy="102" r="6" fill="#346383"/>
+      <circle cx="97" cy="352" r="6" fill="#346383"/>
+      <circle cx="303" cy="352" r="6" fill="#346383"/>
+    </g>
+    <!-- Plaukai -->
+    <path class="human-only boy-only" d="M64 200 Q60 70 200 55 Q340 70 336 200 Q320 120 260 110 Q230 140 180 112 Q130 135 100 120 Q72 150 64 200 Z"
+          fill="#6b4226"/>
+    <g class="girl-only">
+      <path d="M62 208 Q43 96 106 69 Q182 24 267 65 Q353 76 338 206
+        Q321 168 319 130 Q283 148 255 110 Q201 152 150 118
+        Q110 150 85 132 Q78 177 62 208 Z" fill="#513043"/>
+      <path d="M67 174 Q41 284 53 405 Q67 425 86 407 Q74 346 82 291 Q90 238 91 160 Z"
+            fill="#513043"/>
+      <path d="M333 174 Q359 284 347 405 Q333 425 314 407 Q326 346 318 291 Q310 238 309 160 Z"
+            fill="#513043"/>
+      <path d="M268 84 Q284 66 305 72 Q312 91 291 100 Z" fill="#ec83ae"/>
+      <path d="M307 73 Q331 69 334 89 Q317 100 296 94 Z" fill="#ec83ae"/>
+      <circle cx="299" cy="87" r="9" fill="#b83e79"/>
+      <circle cx="62" cy="266" r="6" fill="#f2cf68"/>
+      <circle cx="338" cy="266" r="6" fill="#f2cf68"/>
+    </g>
+
+    <!-- Skruostai -->
+    <ellipse class="human-only" cx="112" cy="270" rx="24" ry="13" fill="#f29b9b" opacity=".45"/>
+    <ellipse class="human-only" cx="288" cy="270" rx="24" ry="13" fill="#f29b9b" opacity=".45"/>
+    <g class="robot-only" fill="#35d4e4">
+      <circle cx="109" cy="271" r="7"/>
+      <circle cx="291" cy="271" r="7"/>
+    </g>
+
+    <!-- Antakiai -->
+    <g id="browL"><path d="M106 150 Q140 130 172 146" stroke="#5a3a22" stroke-width="9" fill="none" stroke-linecap="round"/></g>
+    <g id="browR"><path d="M228 146 Q260 130 294 150" stroke="#5a3a22" stroke-width="9" fill="none" stroke-linecap="round"/></g>
+
+    <!-- Akys (grupė suspaudžiama vertikaliai mirksint) -->
+    <g id="eyeL">
+      <ellipse cx="140" cy="190" rx="30" ry="24" fill="#fff" stroke="#5a3a22" stroke-width="3"/>
+      <path class="girl-only" d="M115 176 L106 170 M125 169 L120 161 M136 167 L134 158"
+            fill="none" stroke="#5a3043" stroke-width="3" stroke-linecap="round"/>
+      <g clip-path="url(#eyeClipL)">
+      <g id="pupilL">
+        <circle cx="140" cy="190" r="11" fill="#2b2b2b"/>
+        <circle cx="144" cy="186" r="3.5" fill="#fff"/>
+      </g>
+      </g>
+      <g class="real-only" fill="none" stroke-linecap="round">
+        <path d="M112 191 Q140 166 168 189" stroke="#24150f" stroke-width="3.5"/>
+        <path d="M114 192 Q140 212 166 192" stroke="#b07a66" stroke-width="1.5" opacity=".7"/>
+        <path d="M114 187 L107 183 M118 183 L112 177" stroke="#24150f" stroke-width="1.5"/>
+      </g>
+    </g>
+    <g id="eyeR">
+      <ellipse cx="260" cy="190" rx="30" ry="24" fill="#fff" stroke="#5a3a22" stroke-width="3"/>
+      <path class="girl-only" d="M285 176 L294 170 M275 169 L280 161 M264 167 L266 158"
+            fill="none" stroke="#5a3043" stroke-width="3" stroke-linecap="round"/>
+      <g clip-path="url(#eyeClipR)">
+      <g id="pupilR">
+        <circle cx="260" cy="190" r="11" fill="#2b2b2b"/>
+        <circle cx="264" cy="186" r="3.5" fill="#fff"/>
+      </g>
+      </g>
+      <g class="real-only" fill="none" stroke-linecap="round">
+        <path d="M288 191 Q260 166 232 189" stroke="#24150f" stroke-width="3.5"/>
+        <path d="M286 192 Q260 212 234 192" stroke="#b07a66" stroke-width="1.5" opacity=".7"/>
+        <path d="M286 187 L293 183 M282 183 L288 177" stroke="#24150f" stroke-width="1.5"/>
+      </g>
+    </g>
+
+    <!-- Nosis -->
+    <path class="human-only" d="M202 205 Q186 252 194 264 Q203 272 216 262" stroke="#c98e5d" stroke-width="5"
+          fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <path class="robot-only" d="M200 227 L212 255 H188 Z" fill="#719aa9" stroke="#346383" stroke-width="3"/>
+
+    <!-- Burna: užpildas, dantys ir liežuvis (apkirpti pagal burnos formą), kontūras -->
+    <rect class="robot-only" x="143" y="287" width="114" height="75" rx="18" fill="#9fc6d1" stroke="#719aa9" stroke-width="3"/>
+    <path id="mouthFill" fill="#6e1b27"/>
+    <g clip-path="url(#mouthClip)">
+      <rect id="teeth" fill="#fff" rx="2"/>
+      <ellipse id="tongue" fill="#e0607a"/>
+    </g>
+    <path id="mouthOutline" fill="none" stroke="#8a3a2a" stroke-width="4" stroke-linejoin="round"/>
+  </g>
+</svg>
+
+<div class="panel">
+  <h1>Kalbantis veidas</h1>
+
+  <label for="faceChoice">Veidas</label>
+  <select id="faceChoice">
+    <option value="human">Žmogus</option>
+    <option value="girl">Mergina</option>
+    <option value="robot">Robotas</option>
+    <option value="real">Tikroviškas veidas</option>
+  </select>
+
+  <label for="lang">Kalba</label>
+  <select id="lang">
+    <option value="lt-LT">lt-LT (lietuvių)</option>
+    <option value="en-US">en-US (anglų)</option>
+  </select>
+  <div id="voiceNote" class="note"></div>
+
+  <label for="text">Tekstas</label>
+  <textarea id="text">Labas! Aš esu kalbantis veidas. Ar girdi mane?</textarea>
+
+  <div class="buttons">
+    <button id="speakBtn" type="button">Kalbėk</button>
+    <button id="micBtn" type="button">Mikrofonas</button>
+    <button id="stopBtn" type="button">Stop</button>
+  </div>
+  <div id="meter" class="meter"><div id="meterBar"></div></div>
+  <div id="status" class="note"></div>
+  <div class="hint">Ctrl+Enter – ištarti tekstą. Mikrofonui per file:// gali reikėti localhost.
+    <a href="talking-face-3d.html">3D veidas (three.js) →</a> · <a href="talking-face-avatars.html">3D avatarai →</a></div>
+</div>
+
+<script>
+'use strict';
+
+const $ = id => document.getElementById(id);
+const svg = $('face');
+const els = {
+  head: $('head'),
+  browL: $('browL'), browR: $('browR'),
+  mouthFill: $('mouthFill'), mouthOutline: $('mouthOutline'), mouthClip: $('mouthClipPath'),
+  teeth: $('teeth'), tongue: $('tongue'),
+  status: $('status'), voiceNote: $('voiceNote'),
+  meter: $('meter'), meterBar: $('meterBar'), micBtn: $('micBtn')
+};
+
+const MOUTH_X = 200, MOUTH_Y = 318;
+const RATE = 1;
+const MS_PER_CHAR = 72;
+const DEFAULT_TEXT = {
+  'lt-LT': 'Labas! Aš esu kalbantis veidas. Ar girdi mane?',
+  'en-US': 'Hello! I am a talking face. Can you hear me?'
+};
+
+// Burnos formos (vizemos): plotis, aukštis, apvalumas 0..1.
+const VISEMES = {
+  rest: { w: 66, h: 0,  r: .3 },
+  a:    { w: 70, h: 44, r: .55 },
+  o:    { w: 46, h: 40, r: 1 },
+  u:    { w: 34, h: 24, r: 1 },
+  e:    { w: 82, h: 26, r: .25 },
+  i:    { w: 88, h: 14, r: .1 },
+  mbp:  { w: 60, h: 0,  r: .2 },
+  fv:   { w: 72, h: 7,  r: .1 },
+  cons: { w: 64, h: 16, r: .4 }
+};
+const VOWELS = new Set(['a', 'o', 'u', 'e', 'i']);
+
+const EYES = [
+  { el: $('eyeL'), pupil: $('pupilL'), x: 140, y: 190, off: { x: 0, y: 0 } },
+  { el: $('eyeR'), pupil: $('pupilR'), x: 260, y: 190, off: { x: 0, y: 0 } }
+];
+
+const mouth = { ...VISEMES.rest };
+const state = {
+  speaking: false,
+  utterance: null,
+  frames: [],          // [{t, v}] – vizemų eilė su absoliučiu laiku (ms)
+  brows: [],           // [{from, to, type}] – antakių pakėlimai
+  mic: null,
+  micLevel: 0,
+  noise: 0.01,
+  mouse: { x: 200, y: 190 },
+  lastMouse: -1e9,     // paskutinio pelės judesio laikas
+  gaze: { x: 0, y: 0 },// žvilgsnio poslinkis (sakada) nuo pelės ar veido centro
+  nextSaccade: performance.now() + 800,
+  sway: 0,
+  browL: 0, browR: 0,
+  nextBlink: performance.now() + 2000 + Math.random() * 4000,
+  blinkStart: -1e9
+};
+
+/* ---------- Vizemos ---------- */
+
+function visemeFor(ch) {
+  // Nuimame diakritikus: ą→a, ė→e, ū→u, š→s ...
+  const c = ch.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (c === 'a') return 'a';
+  if (c === 'o') return 'o';
+  if (c === 'u' || c === 'w') return 'u';
+  if (c === 'e') return 'e';
+  if (c === 'i' || c === 'y') return 'i';
+  if ('mbp'.includes(c)) return 'mbp';
+  if ('fv'.includes(c)) return 'fv';
+  if (/\p{L}/u.test(c)) return 'cons';
+  return null;
+}
+
+function charDuration(v) {
+  const base = MS_PER_CHAR / RATE;
+  return VOWELS.has(v) ? base * 1.35 : base * 0.8;
+}
+
+// Teksto atkarpą paverčia laiko eile. withPauses – ar daryti pauzes ties tarpais/skyryba
+// (naudojama, kai naršyklė nesiunčia onboundary įvykių ir tenka spėti visą tekstą).
+function schedule(text, t0, withPauses) {
+  const out = [];
+  let t = t0;
+  for (const ch of text) {
+    const v = visemeFor(ch);
+    if (v) {
+      out.push({ t, v });
+      t += charDuration(v);
+    } else if (withPauses) {
+      if (ch === '?' || ch === '!') addBrow(ch, t);
+      const pause = /[.,;:?!…]/.test(ch) ? 260 : (/\s/.test(ch) ? 60 : 0);
+      if (pause) {
+        out.push({ t, v: 'rest' });
+        t += pause / RATE;
+      }
+    }
+  }
+  out.push({ t, v: 'rest' });
+  return out;
+}
+
+function visemeAt(now) {
+  let v = 'rest';
+  for (const f of state.frames) {
+    if (f.t > now) break;
+    v = f.v;
+  }
+  return VISEMES[v];
+}
+
+function addBrow(type, from) {
+  state.brows.push({ type, from, to: from + 900 });
+}
+
+// Žodžio riba: suplanuojame tik šį žodį nuo dabar, taip sinchronizacija atsistato kiekvienam žodžiui.
+function onWord(text, index, length) {
+  const rest = text.slice(index);
+  const match = rest.match(/^[\p{L}\p{N}'’-]+/u);
+  const word = length ? text.substr(index, length) : (match ? match[0] : rest.split(/\s/)[0]);
+  const now = performance.now();
+  state.frames = schedule(word, now, false);
+  const wordDur = state.frames[state.frames.length - 1].t - now;
+  const after = (text.slice(index + word.length).match(/^[^\p{L}\p{N}]*/u) || [''])[0];
+  const punct = word + after;
+  if (/[?!]/.test(punct)) addBrow(punct.includes('?') ? '?' : '!', now + wordDur * 0.6);
+}
+
+/* ---------- Kalba ---------- */
+
+function pickVoice(lang) {
+  const voices = speechSynthesis.getVoices();
+  const norm = s => s.replace('_', '-').toLowerCase();
+  const prefix = lang.slice(0, 2).toLowerCase();
+  const voice = voices.find(v => norm(v.lang) === lang.toLowerCase())
+    || voices.find(v => norm(v.lang).startsWith(prefix));
+  if (voice) return { voice, fallback: false };
+  return { voice: voices[0] || null, fallback: true };
+}
+
+function setNote(el, text, warn) {
+  el.textContent = text;
+  el.classList.toggle('warn', !!warn);
+}
+
+function describeVoice() {
+  if (!('speechSynthesis' in window)) {
+    setNote(els.voiceNote, 'Ši naršyklė nepalaiko speechSynthesis.', true);
+    return;
+  }
+  const lang = $('lang').value;
+  const { voice, fallback } = pickVoice(lang);
+  if (!voice) setNote(els.voiceNote, 'Balsai dar neįkelti arba sistemoje jų nėra.', true);
+  else if (fallback) setNote(els.voiceNote, `Naršyklė neturi ${lang} balso – naudojamas Google Translate balsas `
+    + '(reikia interneto, tekstas siunčiamas Google). Microsoft Edge turi savus lietuviškus balsus.', true);
+  else setNote(els.voiceNote, `Balsas: ${voice.name} (${voice.lang})`, false);
+}
+
+// Google Translate TTS (neoficialus): naudojamas, kai naršyklė neturi balso pasirinktai kalbai.
+// Tekstas siunčiamas Google. Vienai užklausai – iki ~200 simbolių, todėl tekstą skaidome.
+const GOOGLE_TTS_MAX = 190;
+
+function splitForTts(text) {
+  const parts = [];
+  let rest = text.trim();
+  while (rest.length > GOOGLE_TTS_MAX) {
+    const head = rest.slice(0, GOOGLE_TTS_MAX);
+    let cut = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '), head.lastIndexOf(', '));
+    if (cut < GOOGLE_TTS_MAX / 3) cut = head.lastIndexOf(' ');
+    if (cut <= 0) cut = GOOGLE_TTS_MAX - 1;
+    parts.push(rest.slice(0, cut + 1).trim());
+    rest = rest.slice(cut + 1).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+function speakGoogle(text, lang, onDone) {
+  const token = {};
+  const parts = splitForTts(text);
+  state.utterance = token;
+
+  const finish = error => {
+    if (state.utterance !== token) return;
+    state.speaking = false;
+    state.frames = [];
+    state.utterance = null;
+    state.audio = null;
+    setNote(els.status, error ? `Google TTS klaida: ${error}` : 'Baigta.', !!error);
+    if (onDone) onDone();
+  };
+
+  const playPart = i => {
+    if (state.utterance !== token) return;
+    if (i >= parts.length) return finish();
+    const part = parts[i];
+    const audio = new Audio('https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob'
+      + `&tl=${encodeURIComponent(lang.slice(0, 2))}&q=${encodeURIComponent(part)}`);
+    state.audio = audio;
+    audio.onplaying = () => {
+      if (state.utterance !== token) return;
+      const now = performance.now();
+      const frames = schedule(part, now, true);
+      const estimated = frames[frames.length - 1].t - now;
+      const actual = (audio.duration || 0) * 1000;
+      const k = estimated > 0 && actual > 0 && isFinite(actual) ? actual / estimated : 1;
+      frames.forEach(f => { f.t = now + (f.t - now) * k; });
+      state.frames = frames;
+      state.speaking = true;
+      setNote(els.status, 'Kalbu… (Google TTS)', false);
+    };
+    audio.onended = () => playPart(i + 1);
+    audio.onerror = () => finish('nepavyko gauti garso (ar yra internetas?)');
+    audio.play().catch(e => finish(e.message));
+  };
+  playPart(0);
+}
+
+function speak() {
+  const text = $('text').value.trim();
+  if (!text) return;
+  if (!('speechSynthesis' in window)) {
+    setNote(els.status, 'speechSynthesis nepalaikomas.', true);
+    return;
+  }
+  stopMic();
+  stopSpeech();
+
+  const lang = $('lang').value;
+  const { voice, fallback } = pickVoice(lang);
+  if (fallback) return speakGoogle(text, lang);
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = voice && fallback ? voice.lang : lang;
+  if (voice) u.voice = voice;
+  u.rate = RATE;
+
+  // Senos (atšauktos) frazės įvykiai ignoruojami.
+  u.onstart = () => {
+    if (state.utterance !== u) return;
+    state.speaking = true;
+    state.frames = schedule(text, performance.now(), true);
+    setNote(els.status, 'Kalbu…', false);
+  };
+  u.onboundary = e => {
+    if (state.utterance !== u || (e.name && e.name !== 'word')) return;
+    state.brows = state.brows.filter(b => b.from <= performance.now());
+    onWord(text, e.charIndex, e.charLength);
+  };
+  u.onend = u.onerror = e => {
+    if (state.utterance !== u) return;
+    state.speaking = false;
+    state.frames = [];
+    state.utterance = null;
+    const failed = e.type === 'error' && e.error !== 'interrupted' && e.error !== 'canceled';
+    setNote(els.status, failed ? `Kalbos klaida: ${e.error}` : 'Baigta.', failed);
+  };
+
+  state.utterance = u;   // laikome nuorodą, kad Chrome nesurinktų jos kaip šiukšlės
+  speechSynthesis.speak(u);
+}
+
+function stopSpeech() {
+  state.utterance = null;
+  state.speaking = false;
+  state.frames = [];
+  if (state.audio) { state.audio.pause(); state.audio = null; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+}
+
+/* ---------- Mikrofonas ---------- */
+
+async function toggleMic() {
+  if (state.mic) {
+    stopMic();
+    setNote(els.status, 'Mikrofonas išjungtas.', false);
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setNote(els.status, 'Mikrofonas nepasiekiamas. Atidarykite per http://localhost.', true);
+    return;
+  }
+  stopSpeech();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true }
+    });
+    const ctx = new AudioContext();
+    await ctx.resume();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    state.mic = { stream, ctx, analyser, buf: new Float32Array(analyser.fftSize) };
+    state.noise = 0.01;
+    els.micBtn.classList.add('active');
+    els.micBtn.textContent = 'Mikrofonas (įj.)';
+    els.meter.classList.add('on');
+    setNote(els.status, 'Klausau mikrofono…', false);
+  } catch (err) {
+    setNote(els.status, `Mikrofono įjungti nepavyko (${err.name}). Per file:// gali reikėti localhost.`, true);
+  }
+}
+
+function stopMic() {
+  const m = state.mic;
+  if (!m) return;
+  m.stream.getTracks().forEach(t => t.stop());
+  m.ctx.close();
+  state.mic = null;
+  els.micBtn.classList.remove('active');
+  els.micBtn.textContent = 'Mikrofonas';
+  els.meter.classList.remove('on');
+}
+
+function updateMic(dt) {
+  const m = state.mic;
+  if (!m) {
+    state.micLevel += (0 - state.micLevel) * (1 - Math.exp(-dt * 8));
+    return;
+  }
+  m.analyser.getFloatTimeDomainData(m.buf);
+  let sum = 0;
+  for (const x of m.buf) sum += x * x;
+  const rms = Math.sqrt(sum / m.buf.length);
+
+  // Triukšmo lygis greitai krinta ir lėtai kyla, todėl foninis ūžesys burnos neatidaro.
+  state.noise = rms < state.noise ? rms : state.noise + (rms - state.noise) * dt * 0.3;
+  const raw = Math.min(1, Math.max(0, (rms - state.noise * 1.6 - 0.004) * 18));
+
+  // Asimetrinis lyginimas: greitai atsidaro, lėčiau užsidaro – burna nedreba.
+  const k = raw > state.micLevel ? 1 - Math.exp(-dt * 30) : 1 - Math.exp(-dt * 9);
+  state.micLevel += (raw - state.micLevel) * k;
+  els.meterBar.style.width = `${Math.round(state.micLevel * 100)}%`;
+}
+
+/* ---------- Piešimas ---------- */
+
+const f1 = n => n.toFixed(1);
+
+function drawMouth() {
+  const { w, h, r } = mouth;
+  const x0 = MOUTH_X - w / 2, x1 = MOUTH_X + w / 2;
+  const yc = MOUTH_Y - Math.max(0, 6 - h * 0.12);     // kampučiai pakelti – lengva šypsena
+  const up = h * 0.35, down = h * 0.65 + 1.5;
+  const c = 0.25 * (1 - r) * w;                       // mažesnis c – apvalesnė burna
+  const k = 1.33;                                     // Bezier koef. pusės elipsės aproksimacijai
+  const d = `M${f1(x0)} ${f1(yc)} C${f1(x0 + c)} ${f1(MOUTH_Y - up * k)} ${f1(x1 - c)} ${f1(MOUTH_Y - up * k)} ${f1(x1)} ${f1(yc)}`
+          + ` C${f1(x1 - c)} ${f1(MOUTH_Y + down * k)} ${f1(x0 + c)} ${f1(MOUTH_Y + down * k)} ${f1(x0)} ${f1(yc)}Z`;
+  els.mouthFill.setAttribute('d', d);
+  els.mouthOutline.setAttribute('d', d);
+  els.mouthClip.setAttribute('d', d);
+
+  const tw = w * 0.8;
+  els.teeth.setAttribute('x', f1(MOUTH_X - tw / 2));
+  els.teeth.setAttribute('y', f1(MOUTH_Y - up - 3));
+  els.teeth.setAttribute('width', f1(tw));
+  els.teeth.setAttribute('height', '9');
+  els.teeth.setAttribute('opacity', h > 6 ? 1 : 0);
+
+  els.tongue.setAttribute('cx', MOUTH_X);
+  els.tongue.setAttribute('cy', f1(MOUTH_Y + down - 2));
+  els.tongue.setAttribute('rx', f1(w * 0.32));
+  els.tongue.setAttribute('ry', f1(4 + h * 0.12));
+  els.tongue.setAttribute('opacity', h > 10 ? 1 : 0);
+}
+
+function updateEyes(now, dt) {
+  if (now >= state.nextBlink) {
+    state.blinkStart = now;
+    state.nextBlink = now + 2000 + Math.random() * 4000;
+  }
+  const p = (now - state.blinkStart) / 170;
+  const s = p >= 0 && p < 1 ? 1 - 0.95 * Math.sin(Math.PI * p) : 1;
+  // Kai pelė nejuda >2,5 s, akys pačios dairosi: staigūs šuoliai (sakados) į atsitiktinius taškus,
+  // dažnai grįžtant žiūrėti tiesiai į žiūrovą. Kai pelė juda – tik maži virpesiai aplink ją.
+  const idle = now - state.lastMouse > 2500;
+  if (now >= state.nextSaccade) {
+    state.nextSaccade = now + 500 + Math.random() * 2500;
+    const lookAtViewer = idle && Math.random() < 0.4;
+    state.gaze.x = lookAtViewer ? 0 : (Math.random() - 0.5) * (idle ? 380 : 40);
+    state.gaze.y = lookAtViewer ? 0 : (Math.random() - 0.5) * (idle ? 220 : 24);
+  }
+  const gx = (idle ? 200 : state.mouse.x) + state.gaze.x;
+  const gy = (idle ? 190 : state.mouse.y) + state.gaze.y;
+  const kp = 1 - Math.exp(-dt * (idle ? 16 : 4));
+
+  for (const e of EYES) {
+    const dx = gx - e.x, dy = gy - e.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const reach = Math.min(1, dist / 180);
+    e.off.x += (dx / dist * 9 * reach - e.off.x) * kp;
+    e.off.y += (dy / dist * 7 * reach - e.off.y) * kp;
+    e.pupil.setAttribute('transform', `translate(${f1(e.off.x)} ${f1(e.off.y)})`);
+    // Suspaudimas aplink akies centrą: y' = s*y + cy*(1-s)
+    e.el.setAttribute('transform', `translate(0 ${(e.y * (1 - s)).toFixed(2)}) scale(1 ${s.toFixed(3)})`);
+  }
+}
+
+function updateBrows(now, dt) {
+  state.brows = state.brows.filter(b => now < b.to);
+  let tl = 0, tr = 0;
+  for (const b of state.brows) {
+    if (now < b.from) continue;
+    if (b.type === '?') { tl = Math.min(tl, -14); tr = Math.min(tr, -6); }
+    else { tl = Math.min(tl, -12); tr = Math.min(tr, -12); }
+  }
+  tl -= state.micLevel * 4;
+  tr -= state.micLevel * 4;
+  const kb = 1 - Math.exp(-dt * 10);
+  state.browL += (tl - state.browL) * kb;
+  state.browR += (tr - state.browR) * kb;
+  els.browL.setAttribute('transform', `translate(0 ${f1(state.browL)})`);
+  els.browR.setAttribute('transform', `translate(0 ${f1(state.browR)})`);
+}
+
+function updateHead(now, dt) {
+  const active = state.speaking || state.micLevel > 0.06;
+  state.sway += ((active ? 1 : 0) - state.sway) * (1 - Math.exp(-dt * 3));
+  const t = now / 1000;
+  const rot = state.sway * (Math.sin(t * 2.3) * 2.6 + Math.sin(t * 3.9) * 1.2);
+  const bob = state.sway * Math.sin(t * 4.6) * 2 + Math.sin(t * 1.1) * 0.8;   // + lengvas „kvėpavimas“
+  els.head.setAttribute('transform', `rotate(${rot.toFixed(2)} 200 420) translate(0 ${bob.toFixed(2)})`);
+}
+
+let lastTime = performance.now();
+function tick(now) {
+  const dt = Math.min(0.05, Math.max(0, (now - lastTime) / 1000));
+  lastTime = now;
+
+  updateMic(dt);
+  let target = VISEMES.rest;
+  if (state.speaking) target = visemeAt(now);
+  else if (state.mic) target = { w: 62 + state.micLevel * 16, h: state.micLevel * 48, r: .55 };
+
+  // Tolygus perėjimas į tikslinę formą
+  const km = 1 - Math.exp(-dt * 22);
+  for (const key of ['w', 'h', 'r']) mouth[key] += (target[key] - mouth[key]) * km;
+
+  drawMouth();
+  updateEyes(now, dt);
+  updateBrows(now, dt);
+  updateHead(now, dt);
+  requestAnimationFrame(tick);
+}
+
+/* ---------- Įvykiai ---------- */
+
+window.addEventListener('mousemove', e => {
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return;
+  const pt = svg.createSVGPoint();
+  pt.x = e.clientX;
+  pt.y = e.clientY;
+  const p = pt.matrixTransform(ctm.inverse());
+  state.mouse.x = p.x;
+  state.mouse.y = p.y;
+  state.lastMouse = performance.now();
+});
+
+$('speakBtn').addEventListener('click', speak);
+$('micBtn').addEventListener('click', toggleMic);
+$('faceChoice').addEventListener('change', e => {
+  svg.classList.toggle('robot', e.target.value === 'robot');
+  svg.classList.toggle('girl', e.target.value === 'girl');
+  svg.classList.toggle('real', e.target.value === 'real');
+});
+$('stopBtn').addEventListener('click', () => {
+  stopSpeech();
+  stopMic();
+  state.brows = [];
+  setNote(els.status, 'Sustabdyta.', false);
+});
+$('text').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); speak(); }
+});
+$('lang').addEventListener('change', () => {
+  const ta = $('text');
+  if (Object.values(DEFAULT_TEXT).includes(ta.value.trim())) ta.value = DEFAULT_TEXT[$('lang').value];
+  describeVoice();
+});
+
+if ('speechSynthesis' in window) speechSynthesis.addEventListener('voiceschanged', describeVoice);
+describeVoice();
+drawMouth();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
