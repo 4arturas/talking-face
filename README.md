@@ -30,7 +30,8 @@ How the talking works (all our own code):
 - Mic: RMS level opens the jaw.
 - Idle: blinking, gaze, head sway.
 - Chat: Ollama at `http://localhost:11434` (`/api/tags`, `/api/chat`, preferred model
-  `gemma4:e2b`). Answers are spoken sentence by sentence (`enqueueSentence` /
+  `qwen3:8b`, 5.2 GB Q4_K_M; runs on the RTX 2070 SUPER GPU, ~85 % GPU / ~15 % CPU).
+  Answers are spoken sentence by sentence (`enqueueSentence` /
   `speakNextSentence`).
 - three.js 0.170.0 from `cdn.jsdelivr.net` (import map). Internet is needed.
 
@@ -44,6 +45,46 @@ python -m http.server 8000
 
 `file://` does not work for the mic, Ollama and local GLB files. Stop the server by PID
 when done.
+
+### Running it on Linux/macOS
+
+Server: `python3 -m http.server 8000` (same URL).
+
+This checkout is also set up on Linux (Pop!_OS 22.04): a portable Blender 5.2.2 lives
+in `~/opt/talking-face/blender/blender-5.2.2-linux-x64/`, and MPFB + the asset packs are
+in the default Blender config dir (`~/.config/blender/5.2/extensions/`). For avatar
+work use the wrappers:
+
+```bash
+blender/make_avatar.sh avatars/<id>.glb <preset>   # Blender: $BLENDER, or the portable build, or PATH
+tools/make_rpm_variant.sh                          # needs Pillow (python3 -m pip install --user pillow)
+```
+
+The `.sh` wrappers call the same Python scripts as Windows; the PowerShell instructions
+further down are kept for the owner's Windows machine.
+
+### Better Lithuanian voice (Piper / Microsoft Edge)
+
+The "Kalbėk" button first uses the browser's own voice for the selected language. When the
+browser has no `lt` voice, the page now tries a local TTS server instead of the old
+Google Translate voice:
+
+```bash
+tools/run-server.sh          # http://localhost:3000/talking-face-avatars.html
+```
+
+What the server (`tools/tts-server/server.mjs`, port 3000, zero npm dependencies) does:
+
+- serves the project pages too (`/` redirects to `talking-face-avatars.html`);
+- `GET /api/tts?text=...&engine=auto|piper|edge&voice=lt-LT-OnaNeural` — `auto` tries
+  Piper first (offline), then `edge-tts` (Microsoft's `lt-LT-OnaNeural`/`lt-LT-LeonasNeural`,
+  online);
+- `GET /api/voices` — lists the available voices.
+
+Needed Python packages (installed with `python3 -m pip install --user piper-tts edge-tts`),
+the Piper model `lt_LT-reginute1-medium.onnx` and its sidecar JSON in
+`~/opt/talking-face/piper/`. The page falls back to Google Translate TTS only if the
+server is unreachable.
 
 ## 2. What an avatar GLB must contain
 
@@ -109,6 +150,12 @@ is driven only by headless Python scripts that are saved in this repo.
 & <blender> --background --python blender\make_avatar.py -- avatars\<id>.glb <preset>
 ```
 
+Linux/macOS wrapper (finds Blender, see above):
+
+```bash
+blender/make_avatar.sh avatars/<id>.glb <preset>
+```
+
 - A run takes 1–2 minutes. Filter the noisy output:
   `... 2>&1 | Select-String 'AVATAR|Error|Traceback'`.
 - New look = new entry in `PRESETS` at the top of `make_avatar.py`:
@@ -156,6 +203,8 @@ can change morphs, so do not use Blender for simple recolours.
 ```powershell
 python tools\make_rpm_variant.py   # needs Pillow; downloads brunette.glb to blender\work\ if missing
 ```
+
+Linux/macOS wrapper: `tools/make_rpm_variant.sh`
 
 - Ready Player Me materials: `Wolf3D_Skin, Wolf3D_Eye, Wolf3D_Teeth, Wolf3D_Body,
   Wolf3D_Hair, Wolf3D_Outfit_Top, Wolf3D_Outfit_Bottom, Wolf3D_Outfit_Footwear,

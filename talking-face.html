@@ -486,21 +486,29 @@ function setNote(el, text, warn) {
 }
 
 function describeVoice() {
-  if (!('speechSynthesis' in window)) {
-    setNote(els.voiceNote, 'Ši naršyklė nepalaiko speechSynthesis.', true);
+  const lang = $('lang').value;
+  const { voice } = pickVoice(lang);
+  if (!voice) {
+    setNote(els.voiceNote, 'Balsų tvarka: vietinis serveris (Piper „Aistė" / Edge „Ona"/„Leonas") → Google. '
+      + 'Natyvių naršyklės balsų nerasta.', true);
     return;
   }
-  const lang = $('lang').value;
-  const { voice, fallback } = pickVoice(lang);
-  if (!voice) setNote(els.voiceNote, 'Balsai dar neįkelti arba sistemoje jų nėra.', true);
-  else if (fallback) setNote(els.voiceNote, `Naršyklė neturi ${lang} balso – naudojamas Google Translate balsas `
-    + '(reikia interneto, tekstas siunčiamas Google). Microsoft Edge turi savus lietuviškus balsus.', true);
-  else setNote(els.voiceNote, `Balsas: ${voice.name} (${voice.lang})`, false);
+  setNote(els.voiceNote, `Balsų tvarka: vietinis serveris (Piper „Aistė" / Edge „Ona"/„Leonas") → `
+    + `naršyklės „${voice.name}" (${voice.lang}) → Google.`, false);
 }
 
 // Google Translate TTS (neoficialus): naudojamas, kai naršyklė neturi balso pasirinktai kalbai.
 // Tekstas siunčiamas Google. Vienai užklausai – iki ~200 simbolių, todėl tekstą skaidome.
 const GOOGLE_TTS_MAX = 190;
+
+// Vietinis balsų serveris (tools/tts-server/server.mjs): Piper „Aistė" (offline) arba
+// edge-tts (Microsoft „Ona"/„Leonas", online). Per localhost:3000 nuoroda paprasta,
+// kitaip – absoliuti, kad veiktų ir iš python http.server / file://.
+const TTS_PORT = 3000;
+function ttsBase() {
+  const port = location.port || (location.protocol === 'https:' ? 443 : 80);
+  return Number(port) === TTS_PORT ? '' : `http://localhost:${TTS_PORT}`;
+}
 
 function splitForTts(text) {
   const parts = [];
@@ -558,21 +566,57 @@ function speakGoogle(text, lang, onDone) {
   playPart(0);
 }
 
-function speak() {
-  const text = $('text').value.trim();
-  if (!text) return;
-  if (!('speechSynthesis' in window)) {
-    setNote(els.status, 'speechSynthesis nepalaikomas.', true);
-    return;
-  }
-  stopMic();
-  stopSpeech();
+// Vietinis balsas: serveris bando Piper (offline), tada edge-tts (Ona). Jei ir tai
+// nepavyksta arba serveris nepasiekiamas – kviečiamas fallback (naršyklės balsas, kitaip Google).
+function speakLocal(text, lang, onDone, fallback) {
+  const token = {};
+  const parts = splitForTts(text);
+  state.utterance = token;
 
-  const lang = $('lang').value;
-  const { voice, fallback } = pickVoice(lang);
-  if (fallback) return speakGoogle(text, lang);
+  const finish = error => {
+    if (state.utterance !== token) return;
+    state.speaking = false;
+    state.frames = [];
+    state.utterance = null;
+    state.audio = null;
+    setNote(els.status, error ? `Vietinio TTS klaida: ${error}` : 'Baigta.', !!error);
+    if (onDone) onDone();
+  };
+
+  const playPart = i => {
+    if (state.utterance !== token) return;
+    if (i >= parts.length) return finish();
+    const part = parts[i];
+    const audio = new Audio(`${ttsBase()}/api/tts?engine=auto&text=${encodeURIComponent(part)}`);
+    state.audio = audio;
+    audio.onplaying = () => {
+      if (state.utterance !== token) return;
+      const now = performance.now();
+      const frames = schedule(part, now, true);
+      const estimated = frames[frames.length - 1].t - now;
+      const actual = (audio.duration || 0) * 1000;
+      const k = estimated > 0 && actual > 0 && isFinite(actual) ? actual / estimated : 1;
+      frames.forEach(f => { f.t = now + (f.t - now) * k; });
+      state.frames = frames;
+      state.speaking = true;
+      setNote(els.status, 'Kalbu… (Piper / Edge)', false);
+    };
+    audio.onended = () => playPart(i + 1);
+    const fall = () => {
+      if (state.utterance !== token) return;
+      state.audio = null;
+      (fallback || speakGoogle)(text, lang, onDone);
+    };
+    audio.onerror = fall;
+    audio.play().catch(fall);
+  };
+  playPart(0);
+}
+
+// Naršyklės (natyvus) balsas.
+function speakNative(text, lang, voice) {
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = voice && fallback ? voice.lang : lang;
+  u.lang = lang;
   if (voice) u.voice = voice;
   u.rate = RATE;
 
@@ -599,6 +643,21 @@ function speak() {
 
   state.utterance = u;   // laikome nuorodą, kad Chrome nesurinktų jos kaip šiukšlės
   speechSynthesis.speak(u);
+}
+
+// Kada vietinis serveris nepasiekiamas: natyvus naršyklės balsas, kitaip – Google.
+function fallbackVoice(text, lang) {
+  const { voice } = pickVoice(lang);
+  if (voice) return speakNative(text, lang, voice);
+  speakGoogle(text, lang);
+}
+
+function speak() {
+  const text = $('text').value.trim();
+  if (!text) return;
+  stopMic();
+  stopSpeech();
+  speakLocal(text, $('lang').value, undefined, fallbackVoice);
 }
 
 function stopSpeech() {
