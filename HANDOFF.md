@@ -77,11 +77,17 @@ Ollama pokalbiui pasiekiamas tiesiai iš `localhost:8000` (CORS), proksiuoti ner
     `node tools/piper-to-sherpa.mjs` (`.sherpa.onnx` su metaduomenimis, `.tokens.txt`).
     Jei jų nėra – atsarginis kelias: `python -m piper -m <modelis> -f <failas>` (~3 s/užklausa).
   - `edge`: npm `msedge-tts` (MP3, online).
-- `GET /api/voices` – balsų sąrašas JSON.
+  - Garso pradžioje pridedama tyla `TTS_LEAD_MS` (numatyta 300 ms; Piper – `padWav()`, Edge –
+    `padMp3()` kartoja pirmą tylų MP3 kadrą), nes Bluetooth ausinės/adapteris (pvz. Poly BT700)
+    nukerpa pirmus ~100–300 ms. Puslapių `speakLocal` lūpas paslenka per `leadMs`.
+- `GET /api/voices` – balsų sąrašas JSON + `leadMs`.
 - `GET /api/say/events` – SSE: pasikeitus `say.txt` (šaknyje), tekstas nusiunčiamas puslapiams,
   avataras jį ištaria (`sayFromServer()`; iki pirmo paspaudimo laukia, nebent puslapis atidarytas
   per `npm run show` – Chrome su `--autoplay-policy=no-user-gesture-required`; Edge vėliavą
-  ignoruoja, jei politika `AutoplayAllowed = 0`).
+  ignoruoja, jei politika `AutoplayAllowed = 0`). Serveris tekstą siunčia **tik vienam** klientui:
+  tam, kuris paskutinis kvietė `POST /api/say/active?id=...` (fokusas/paspaudimas/matomumas);
+  jei tokio nėra – paskutiniam prisijungusiam. Veikia ir tarp skirtingų naršyklių.
+- `POST /api/say/active?id=<PAGE_ID>` – puslapis praneša, kad jis aktyvus (204).
 - Užklausos vykdomos **paeiliui** (Piper/edge yra CPU pertekūviniai procesai).
 - CORS ant API: `Access-Control-Allow-Origin: *`, kad veiktų ir iš `localhost:8000`/file://.
 
@@ -147,7 +153,8 @@ Padaryta:
 - [x] Piper (`lt_LT-reginute1-medium`) sintezė patvirtinta; `phoneme_type` perrašytas į `"espeak"`
 - [x] `server.mjs` + `tools/run-server.sh` + AGENTS.md TTS skyrius
 - [x] Visi 3 puslapiai: vietinis → natyvus → Google prioritetas
-- [x] `talking-face-vrm.html`: VRM avataras (Seed-san, Twist sample, savas .vrm), meta + išraiškų sąrašas
+- [x] `talking-face-vrm.html`: VRM avataras (Seed-san, Twist sample, savas .vrm)
+- [x] Nukirpta kalbos pradžia (BT): tyla `TTS_LEAD_MS` serveryje + lūpų poslinkis puslapiuose
 
 Planuojama / lieka:
 - [ ] Naršyklės funkcinis testas su realiu garso atkūrimu (Playwright neįdiegtas – savininkas atsisakė).

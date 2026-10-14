@@ -23,16 +23,29 @@
     font-family: "Segoe UI", system-ui, sans-serif;
     color: #263238;
     background: radial-gradient(circle at 30% 30%, #4a5866, #1d242b 70%);
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: 280px minmax(0, 560px);
+    grid-template-areas:
+      "left view"
+      "left speak";
+    gap: 20px;
     justify-content: center;
-    gap: 32px;
+    align-content: center;
+    align-items: start;
     padding: 24px;
-    flex-wrap: wrap;
   }
+  @media (max-width: 760px) {
+    body {
+      grid-template-columns: minmax(0, 560px);
+      grid-template-areas: "view" "left" "speak";
+    }
+  }
+  .left { grid-area: left; }
+  .speak { grid-area: speak; }
   #view {
-    width: min(560px, 92vw);
-    height: min(620px, 80vh);
+    grid-area: view;
+    width: 100%;
+    height: min(560px, 68vh);
     border-radius: 18px;
     overflow: hidden;
     position: relative;
@@ -50,7 +63,6 @@
     pointer-events: none;
   }
   .panel {
-    width: min(380px, 92vw);
     background: #fff;
     border-radius: 16px;
     padding: 20px;
@@ -86,7 +98,8 @@
   .meter { height: 6px; background: #e3e8ec; border-radius: 3px; margin-top: 10px; overflow: hidden; visibility: hidden; }
   .meter.on { visibility: visible; }
   #meterBar { height: 100%; width: 0; background: #6c4ccf; }
-  .hint { font-size: 12px; color: #7a8a96; margin-top: 12px; }
+  .hint { font-size: 12px; color: #7a8a96; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
 </style>
 <script type="importmap">
 {
@@ -101,8 +114,8 @@
 
 <div id="view"><div id="loading">Įkeliamas 3D modelis…</div></div>
 
-<div class="panel">
-  <h1>Kalbantis 3D veidas</h1>
+<section class="panel left">
+  <h2>Balsas</h2>
   <label for="lang">Kalba</label>
   <select id="lang">
     <option value="lt-LT">lt-LT (lietuvių)</option>
@@ -111,6 +124,10 @@
   <label for="voice">Balsas</label>
   <select id="voice"></select>
   <div id="voiceNote" class="note"></div>
+</section>
+
+<section class="panel speak">
+  <h2>Kalbėjimas</h2>
   <label for="text">Tekstas</label>
   <textarea id="text">Labas! Aš esu kalbantis veidas. Ar girdi mane?</textarea>
   <div class="buttons">
@@ -120,10 +137,7 @@
   </div>
   <div id="meter" class="meter"><div id="meterBar"></div></div>
   <div id="status" class="note"></div>
-  <div class="hint">Pele galima sukti vaizdą, ratuku – priartinti. Ctrl+Enter – ištarti tekstą.
-    Reikia interneto. Mikrofonui per file:// gali reikėti localhost.
-    <a href="talking-face.html">← 2D veidai</a> · <a href="talking-face-avatars.html">3D avatarai →</a></div>
-</div>
+</section>
 
 <script type="module">
 import * as THREE from 'three';
@@ -343,7 +357,7 @@ function setNote(el, text, warn) {
 // Vietinio serverio balsai ateina iš /api/voices (Piper „Aistė", Edge „Ona"/„Leonas", anglų Edge).
 // Prie jų pridedami šios naršyklės balsai ir Google. Pasirinkimas saugomas kiekvienai kalbai atskirai.
 const VOICE_KEY = 'talking-face.voice.';
-const voiceState = { server: null, list: [] };
+const voiceState = { server: null, list: [], leadMs: 0 };
 const sameLang = (a, b) => String(a || '').replace('_', '-').toLowerCase().slice(0, 2)
   === String(b || '').toLowerCase().slice(0, 2);
 
@@ -353,6 +367,7 @@ async function loadServerVoices() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     voiceState.list = [...(data.piper || []), ...(data.edge || [])];
+    voiceState.leadMs = Number(data.leadMs) || 0;
     voiceState.server = true;
   } catch {
     voiceState.list = [];
@@ -543,12 +558,14 @@ function speakLocal(text, lang, onDone, fallback, query = 'engine=auto', label =
     state.audio = audio;
     audio.onplaying = () => {
       if (state.utterance !== token) return;
-      const now = performance.now();
-      const frames = schedule(part, now, true);
-      const estimated = frames[frames.length - 1].t - now;
-      const actual = (audio.duration || 0) * 1000;
+      // Serveris prideda leadMs tylos pradžioje (BT ausinės nukerpa pradžią) – lūpos laukia tiek pat.
+      const lead = voiceState.leadMs;
+      const start = performance.now() + lead;
+      const frames = schedule(part, start, true);
+      const estimated = frames[frames.length - 1].t - start;
+      const actual = (audio.duration || 0) * 1000 - lead;
       const k = estimated > 0 && actual > 0 && isFinite(actual) ? actual / estimated : 1;
-      frames.forEach(f => { f.t = now + (f.t - now) * k; });
+      frames.forEach(f => { f.t = start + (f.t - start) * k; });
       state.frames = frames;
       state.speaking = true;
       setNote($('status'), `Kalbu… (${label})`, false);
@@ -813,10 +830,34 @@ document.addEventListener('pointerdown', e => {
   if (e.target.closest('#speakBtn')) return;
   setTimeout(speak, 0);
 });
+// say.txt taria tik aktyvus puslapis. Serveris tekstą siunčia tik tam klientui, kuris paskutinis
+// pranešė, kad yra aktyvus (veikia tarp tabų, langų ir skirtingų naršyklių).
+const PAGE_ID = Math.random().toString(36).slice(2);
+function isShown() {
+  if (document.visibilityState !== 'visible') return false;
+  try {
+    const f = window.frameElement;
+    if (f && !f.getClientRects().length) return false;
+  } catch {}
+  return true;
+}
+let lastActiveSent = 0;
+function markActive() {
+  if (!isShown() || location.protocol === 'file:') return;
+  const now = Date.now();
+  if (now - lastActiveSent < 500) return;
+  lastActiveSent = now;
+  fetch(`${ttsBase()}/api/say/active?id=${PAGE_ID}`, { method: 'POST', keepalive: true }).catch(() => {});
+}
+for (const ev of ['focus', 'pointerdown', 'pageshow']) addEventListener(ev, markActive, true);
+document.addEventListener('visibilitychange', markActive);
 if ('EventSource' in window && location.protocol !== 'file:') {
-  new EventSource(`${ttsBase()}/api/say/events`).addEventListener('say', e => {
+  const es = new EventSource(`${ttsBase()}/api/say/events?id=${PAGE_ID}`);
+  // prisijungus (ir po serverio perkrovimo) aktyvus tas puslapis, kuris turi fokusą
+  es.addEventListener('open', () => { if (document.hasFocus()) { lastActiveSent = 0; markActive(); } });
+  es.addEventListener('say', e => {
     const { text } = JSON.parse(e.data);
-    if (text) sayFromServer(text);
+    if (text && isShown()) sayFromServer(text);
   });
 }
 $('micBtn').addEventListener('click', toggleMic);

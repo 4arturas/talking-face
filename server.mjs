@@ -147,6 +147,54 @@ function toWav(samples, sampleRate) {
   return buf;
 }
 
+// Tyla garso pradžioje: Bluetooth ausinės/adapteriai (pvz. Poly BT700) pabunda
+// tik gavę garsą ir nukerpa pirmus ~100–300 ms. Puslapiai lūpas paslenka tiek pat (leadMs).
+const TTS_LEAD_MS = Math.max(0, Number(process.env.TTS_LEAD_MS ?? 300));
+const EDGE_OWN_LEAD_MS = 150;  // Edge MP3 jau turi ~150 ms tylos pradžioje (išmatuota)
+
+// 16-bit PCM WAV: kalba (pirmas garsesnis mėginys) turi prasidėti tiksliai po TTS_LEAD_MS.
+function padWav(buf) {
+  if (buf.toString('ascii', 0, 4) !== 'RIFF') return buf;
+  let pos = 12, rate = 22050, ch = 1;
+  while (pos + 8 <= buf.length) {
+    const id = buf.toString('ascii', pos, pos + 4), size = buf.readUInt32LE(pos + 4);
+    if (id === 'fmt ') { ch = buf.readUInt16LE(pos + 10); rate = buf.readUInt32LE(pos + 12); }
+    if (id === 'data') {
+      const start = pos + 8, end = Math.min(buf.length, start + size);
+      let first = start;
+      while (first + 1 < end && Math.abs(buf.readInt16LE(first)) < 500) first += 2;
+      const have = Math.floor((first - start) / (2 * ch));
+      const add = Math.max(0, Math.round(rate * TTS_LEAD_MS / 1000) - have) * 2 * ch;
+      if (!add) return buf;
+      const out = Buffer.concat([buf.subarray(0, start), Buffer.alloc(add), buf.subarray(start)]);
+      out.writeUInt32LE(out.length - 8, 4);
+      out.writeUInt32LE(size + add, pos + 4);
+      return out;
+    }
+    pos += 8 + size + (size & 1);
+  }
+  return buf;
+}
+
+// MP3: pirmą (tylų) kadrą pakartojame tiek kartų, kad tyla būtų ≈ TTS_LEAD_MS.
+function padMp3(buf) {
+  if (buf.length < 4 || buf[0] !== 0xff || (buf[1] & 0xe0) !== 0xe0) return buf;  // ne kadras (pvz. ID3)
+  const ver = (buf[1] >> 3) & 3, layer = (buf[1] >> 1) & 3;
+  if (layer !== 1) return buf;  // tik Layer III
+  const rates = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] }[ver];
+  const kbps = (ver === 3
+    ? [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
+    : [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160])[buf[2] >> 4];
+  const rate = rates && rates[(buf[2] >> 2) & 3];
+  if (!rate || !kbps) return buf;
+  const perFrame = ver === 3 ? 1152 : 576;
+  const len = Math.floor(perFrame / 8 * kbps * 1000 / rate) + ((buf[2] >> 1) & 1);
+  const frame = buf.subarray(0, len);
+  if (frame.includes('Xing') || frame.includes('Info')) return buf;
+  const n = Math.round((TTS_LEAD_MS - EDGE_OWN_LEAD_MS) / (perFrame * 1000 / rate));
+  return n > 0 ? Buffer.concat([...Array(n).fill(frame), buf]) : buf;
+}
+
 let tmpSeq = 0;
 async function synthPiper(text) {
   const trimmed = text.trim();
@@ -219,6 +267,7 @@ function handleTts(req, res, url) {
           buf = await synthEdge(text, voice); type = 'audio/mpeg';
         }
       }
+      buf = type === 'audio/wav' ? padWav(buf) : padMp3(buf);
       res.writeHead(200, { 'Content-Type': type, ...cors });
       res.end(buf);
     } catch (e) {
@@ -235,6 +284,7 @@ function handleTts(req, res, url) {
 
 function handleVoices(req, res) {
   sendJson(res, 200, {
+    leadMs: TTS_LEAD_MS,
     piper: [{ id: 'piper', label: PIPER_LABEL, lang: 'lt-LT' }],
     edge: Object.entries(EDGE_VOICES).map(([id, label]) => ({ id, label, lang: voiceLang(id) })),
   });
@@ -262,15 +312,21 @@ async function serveStatic(req, res, url) {
 // say.txt: kai failas pasikeičia, jo tekstas per SSE (/api/say/events)
 // nusiunčiamas atidarytiems puslapiams, ir avataras jį ištaria.
 const SAY_FILE = process.env.SAY_FILE || path.join(ROOT, 'say.txt');
-const sayClients = new Set();
+// Tekstą gauna tik vienas klientas: tas, kuris paskutinis pranešė, kad yra
+// aktyvus (/api/say/active?id=...). Taip netaria keli tabai ar naršyklės.
+const sayClients = new Map(); // res -> puslapio id
+let activeSayId = '';
 let sayTimer = null;
 
 if (!existsSync(SAY_FILE)) writeFileSync(SAY_FILE, '');
 
 function broadcastSay(text) {
   const data = `event: say\ndata: ${JSON.stringify({ text })}\n\n`;
-  for (const res of sayClients) res.write(data);
-  console.log(`say.txt -> ${sayClients.size} klient.: ${text.slice(0, 60)}`);
+  const all = [...sayClients];
+  // aktyvus klientas, o jei jo nėra, paskutinis prisijungęs
+  const target = all.find(([, id]) => id && id === activeSayId) || all[all.length - 1];
+  if (target) target[0].write(data);
+  console.log(`say.txt -> ${target ? target[1] || '?' : 'niekam'} (iš ${all.length}): ${text.slice(0, 60)}`);
 }
 
 // watchFile (ne fs.watch): veikia ir kai redaktorius failą pakeičia nauju.
@@ -287,7 +343,13 @@ watchFile(SAY_FILE, { interval: 300 }, (curr, prev) => {
   }, 200);
 });
 
-function handleSayEvents(req, res) {
+function handleSayActive(req, res, url) {
+  activeSayId = url.searchParams.get('id') || '';
+  res.writeHead(204, { 'Access-Control-Allow-Origin': '*' });
+  res.end();
+}
+
+function handleSayEvents(req, res, url) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache',
@@ -295,7 +357,7 @@ function handleSayEvents(req, res) {
     'Access-Control-Allow-Origin': '*',
   });
   res.write('retry: 3000\n\n');
-  sayClients.add(res);
+  sayClients.set(res, url.searchParams.get('id') || '');
   const ping = setInterval(() => res.write(': ping\n\n'), 25000);
   req.on('close', () => { clearInterval(ping); sayClients.delete(res); });
 }
@@ -304,7 +366,8 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (url.pathname === '/api/tts') return handleTts(req, res, url);
   if (url.pathname === '/api/voices') return handleVoices(req, res);
-  if (url.pathname === '/api/say/events') return handleSayEvents(req, res);
+  if (url.pathname === '/api/say/events') return handleSayEvents(req, res, url);
+  if (url.pathname === '/api/say/active') return handleSayActive(req, res, url);
   if (url.pathname.startsWith('/api/')) return sendJson(res, 404, { error: 'Nėra tokio API' });
   serveStatic(req, res, url);
 });

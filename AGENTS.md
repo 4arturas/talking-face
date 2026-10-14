@@ -99,6 +99,12 @@ start with `npm install` + `npm start`; `run-server.sh` runs `npm install` on fi
   `sayFromServer()` in each page. Example: `Set-Content -Encoding utf8 say.txt "Labas"`
     (Windows PowerShell 5.1 needs `-Encoding utf8` for Lithuanian letters; the BOM is
     stripped) or `echo "Labas" > say.txt`.
+  Only one page speaks. Each page connects with `/api/say/events?id=<PAGE_ID>` and, on
+  focus/click/visibility change/SSE open (if focused), calls `POST /api/say/active?id=<PAGE_ID>`.
+  The server sends `say` only to that last active client (fallback: the last connected one),
+  so it works across tabs, windows and different browsers (a `localStorage` check did not:
+  Chrome from `npm run show` and Edge have separate storage). The page also skips the
+  event if it is not visible (`isShown()`). Server log: `say.txt -> <id> (iš N): ...`.
 
 Each page has a **"Balsas"** select under "Kalba". It is filled from `/api/voices`
 (voices of the selected language), plus this browser's own voices and Google Translate.
@@ -135,6 +141,13 @@ tar -xjf "$d\espeak-ng-data.tar.bz2" -C $d; Remove-Item "$d\espeak-ng-data.tar.b
 node tools/piper-to-sherpa.mjs
 npm start   # http://localhost:3000/talking-face-avatars.html
 ```
+
+Clipped speech start (Bluetooth): BT headsets/adapters (e.g. Poly BT700) wake up only when
+audio starts and drop the first ~100–300 ms. So `/api/tts` pads the start with silence:
+`padWav()` makes Piper speech start exactly after `TTS_LEAD_MS` (default 300), `padMp3()`
+repeats the first silent Edge MP3 frame (Edge already has ~150 ms). `/api/voices` returns
+`leadMs`; every page's `speakLocal` starts the lip schedule `leadMs` later. If the start is
+still cut, raise it: `$env:TTS_LEAD_MS=500; npm start`. Google/browser voices are not padded.
 
 Traps (Python fallback only):
 - piper-tts 1.8 rejects `"phoneme_type": "lithuanian"` in the model JSON; change it to
@@ -187,14 +200,14 @@ when you change one page.
   `vrm = gltf.userData.vrm`, then `removeUnnecessaryVertices`, `combineSkeletons`,
   `rotateVRM0`. Call `vrm.update(dt)` every frame (expressions, lookAt, spring bones).
 - Only preset expressions: mouth `aa ih ou ee oh` (max ~0.8, m/b/p = all 0), `blink`,
-  `surprised` × 0.35 for brows on ? / !. Missing ones are skipped and listed under the
-  avatar list. `surprised` with `overrideMouth/overrideBlink = 'block'` is not used.
+  `surprised` × 0.35 for brows on ? / !. Missing ones are skipped (no UI note;
+  the meta/expression list was removed at the owner's request). `surprised` with `overrideMouth/overrideBlink = 'block'` is not used.
 - Eyes: `vrm.lookAt.target` = an `Object3D` in front of the head. Head: normalized
   `neck` / `head` bones. Arms: normalized `left/rightUpperArm.rotation.z = ∓1.2`; the
   code checks that the lower arm ends up below the upper arm and flips the sign if not.
 - Traps: VRM 0.x normalized bones have X and Z flipped after `rotateVRM0` (`axis = -1`).
   ACES tone mapping washes out MToon, so the page uses `NoToneMapping`. `file://` does
-  not work. VRM 0.x meta uses `commercialUssageName` (sic).
+  not work. Pages have no footer hint/links; navigation is via `index.html` tabs.
 - Samples: Seed-san and VRM1_Constraint_Twist_Sample from `vrm-c/vrm-specification`
   (pinned commit, jsDelivr, ~11 MB each). Own model: VRoid Studio → File → Export as
   VRM → "Įkelti savo .vrm". A local file can be added to `AVATARS` as `avatars/x.vrm`.
