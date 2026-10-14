@@ -81,6 +81,9 @@ Ollama pokalbiui pasiekiamas tiesiai iš `localhost:8000` (CORS), proksiuoti ner
   - Garso pradžioje pridedama tyla `TTS_LEAD_MS` (numatyta 300 ms; Piper – `padWav()`, Edge –
     `padMp3()` kartoja pirmą tylų MP3 kadrą), nes Bluetooth ausinės/adapteris (pvz. Poly BT700)
     nukerpa pirmus ~100–300 ms. Puslapių `speakLocal` lūpas paslenka per `leadMs`.
+  - Puslapiuose `keepAudioAwake()`: po pirmo paspaudimo `AudioContext` nuolat groja ~-80 dB
+    triukšmą, kad BT įrenginys po tylos neužmigtų; pirmą kartą `speak()` palaukia 800 ms,
+    kol ryšys pabus (anksčiau nukirpta būdavo tik pirma frazė, kartojimas – gerai).
 - `GET /api/voices` – balsų sąrašas JSON + `leadMs`.
 - `GET /api/say/events` – SSE: pasikeitus `say.txt` (šaknyje), tekstas nusiunčiamas puslapiams,
   avataras jį ištaria (`sayFromServer()`; iki pirmo paspaudimo laukia, nebent puslapis atidarytas

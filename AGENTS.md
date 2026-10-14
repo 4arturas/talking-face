@@ -128,6 +128,12 @@ reply, mostly startup). Piper also needs, in `~/opt/talking-face/piper/`:
 - `lt_LT-reginute1-medium.sherpa.onnx` and `.tokens.txt`, made once by
   `node tools/piper-to-sherpa.mjs` (copies the model and adds the metadata sherpa-onnx needs;
   multi-character phonemes such as `aɪ` are skipped – each character has its own id).
+  It also maps `ʂ` to the id of `s`: espeak-ng writes some Lithuanian `s` as `ʂ`, which the
+  voice never saw in training, so it said "Klaujimas" for "Klausimas" and "Patajau" for
+  "Pataisiau" (checked with Whisper). Re-run the script after updating it.
+  Still not done: the voice was trained with Piper's own Lithuanian phonemizer
+  (`phonemize_lithuanian.py`, stress dictionary `lt_kirciai.tsv`); plain espeak puts the
+  stress wrong in about half of the words.
 
 If these files are missing, the server falls back to Python `piper` (`pip install --user
 piper-tts`), and without that to Edge voices. The startup log says which Piper is used.
@@ -155,6 +161,9 @@ audio starts and drop the first ~100–300 ms. So `/api/tts` pads the start with
 repeats the first silent Edge MP3 frame (Edge already has ~150 ms). `/api/voices` returns
 `leadMs`; every page's `speakLocal` starts the lip schedule `leadMs` later. If the start is
 still cut, raise it: `$env:TTS_LEAD_MS=500; npm start`. Google/browser voices are not padded.
+Padding alone was not enough (only the first phrase after silence was cut), so every page
+also has `keepAudioAwake()`: after the first click/key an `AudioContext` loops ~-80 dB noise
+so the output device never sleeps, and `speak()` waits up to 800 ms after the context starts.
 
 Traps (Python fallback only):
 - piper-tts 1.8 rejects `"phoneme_type": "lithuanian"` in the model JSON; change it to

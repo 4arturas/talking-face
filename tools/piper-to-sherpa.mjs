@@ -25,8 +25,19 @@ const base = model.replace(/\.onnx$/, '');
 // kiekvienas jų simbolis turi ir savo atskirą id.
 const tokens = Object.entries(cfg.phoneme_id_map)
   .filter(([s]) => [...s].length === 1)
-  .map(([s, ids]) => `${s} ${ids[0]}`).join('\n') + '\n';
-writeFileSync(`${base}.tokens.txt`, tokens, 'utf8');
+  .map(([s, ids]) => `${s} ${ids[0]}`);
+// espeak-ng kartais paprastą „s“ rašo kaip ʂ (klausimas -> klauʂɪmas). Lietuviško modelio
+// mokymo duomenyse ʂ nėra, todėl jis tarė nesąmonę („klaujimas“). Piper lietuviškas
+// fonemizatorius ʂ keičia į s – sherpa-onnx tą patį daro per tokens.txt.
+const aliases = { 'ʂ': 's' };
+for (const [from, to] of Object.entries(aliases)) {
+  const ids = cfg.phoneme_id_map[to];
+  const i = tokens.findIndex(t => t.startsWith(`${from} `));
+  if (!ids) continue;
+  if (i >= 0) tokens[i] = `${from} ${ids[0]}`; else tokens.push(`${from} ${ids[0]}`);
+}
+const tokensText = tokens.join('\n') + '\n';
+writeFileSync(`${base}.tokens.txt`, tokensText, 'utf8');
 
 const meta = {
   model_type: 'vits',

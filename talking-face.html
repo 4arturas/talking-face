@@ -788,7 +788,39 @@ function fallbackVoice(text, lang) {
   speakGoogle(text, lang);
 }
 
+// Bluetooth adapteris (pvz. Poly BT700) po tylos užmiega ir nukerpa pirmą frazę.
+// Kol puslapis atidarytas, groja beveik negirdimą triukšmą (~-80 dB), kad garso įrenginys nemiegotų.
+let awakeCtx = null;
+let awakeSince = 0;
+function keepAudioAwake() {
+  try {
+    if (!awakeCtx) {
+      awakeCtx = new AudioContext(); awakeSince = performance.now();
+      awakeCtx.onstatechange = () => { if (awakeCtx.state === 'running') awakeSince = performance.now(); };
+      const rate = awakeCtx.sampleRate;
+      const buf = awakeCtx.createBuffer(1, rate, rate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 1e-4;
+      const src = awakeCtx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.connect(awakeCtx.destination);
+      src.start();
+    }
+    if (awakeCtx.state !== 'running') awakeCtx.resume().catch(() => {});
+  } catch {}
+}
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, keepAudioAwake, true);
+keepAudioAwake();   // be paspaudimo pasileidžia tik su npm run show
+
 function speak() {
+  keepAudioAwake();
+  // Įrenginys ką tik pažadintas – palaukiam, kol užsikurs ryšys, kitaip pirma frazė nukerpama.
+  const sinceAwake = performance.now() - awakeSince;
+  if (awakeCtx && awakeCtx.state === 'running' && sinceAwake < 800) {
+    setTimeout(speak, 800 - sinceAwake);
+    return;
+  }
   const text = $('text').value.trim();
   if (!text) return;
   stopMic();
