@@ -37,6 +37,21 @@ avatars/saule.glb
   License: CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/).
   Non-commercial use only. Keep this attribution when you share it.
 
+avatars/brunette.glb
+  From TalkingHead by met4citizen (https://github.com/met4citizen/TalkingHead),
+  created at Ready Player Me (https://readyplayer.me/).
+  License: CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/).
+
+avatars/avaturn.glb
+  From TalkingHead by met4citizen (https://github.com/met4citizen/TalkingHead),
+  created with Avaturn (https://avaturn.me/).
+  License: CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/).
+
+avatars/avatarsdk.glb
+  From TalkingHead by met4citizen (https://github.com/met4citizen/TalkingHead),
+  created with AvatarSDK by itseez3D (https://avatarsdk.com/).
+  License: CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/).
+
 Avatars loaded at runtime from the TalkingHead repository are not part of this
 repository and keep their own licenses (mostly CC BY-NC 4.0).
 

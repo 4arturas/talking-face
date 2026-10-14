@@ -11,11 +11,12 @@ Static HTML pages, no build step. Everything runs in the browser.
 
 | File | What it does |
 |---|---|
-| `index.html` | Start page: React 19 + antd 6 (esm.sh, Babel standalone) `Tabs`; each tab is one page below in an `<iframe allow="microphone; autoplay">`. `destroyOnHidden`: only the active tab runs, so `say.txt` is spoken once. Tab in `#2d`/`#3d`/`#glb`/`#vrm`. New page = new entry in `PAGES`. |
+| `index.html` | Start page: React 19 + antd 6 (esm.sh, Babel standalone) `Tabs`; each tab is one page below in an `<iframe allow="microphone; autoplay">`. `destroyOnHidden`: only the active tab runs, so `say.txt` is spoken once. Tab in `#2d`/`#3d`/`#glb`/`#vrm`/`#real`. New page = new entry in `PAGES`. |
 | `talking-face.html` | 2D faces (SVG/canvas): human, girl, robot, realistic. |
 | `talking-face-3d.html` | One 3D face (`facecap.glb` from the three.js CDN). |
 | `talking-face-avatars.html` | Main page: full 3D avatars (GLB), voice, mic, Ollama chat. |
 | `talking-face-vrm.html` | VRoid Studio avatar (VRM) via three-vrm; same voice, lip-sync, mic, Ollama code. See section 2a. |
+| `talking-face-realistic.html` | Realistiškas 3D avataras (akcentas ant realistiškumo): Web Audio FFT formantų analizatorius, EffectComposer post-processing (UnrealBloom + 35mm grain + vinjetė), odos SSS sklaida, ragenos lūžis ir biologinės sakados. |
 | `avatars/*.glb` | Own avatars (`ona.glb`, `saule.glb`). |
 | `blender/make_avatar.py` | Builds an avatar in Blender with MPFB (headless). |
 | `tools/make_rpm_variant.py` | Recolours a Ready Player Me GLB (no Blender). |

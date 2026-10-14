@@ -19,6 +19,7 @@ Lietuviški UI tekstai, bendravimas su naudotoju – lietuviškai, paprastai.
 
 ```
 talking-face.html / -3d.html / -avatars.html   # puslapiai (viskas inline, three.js iš CDN)
+talking-face-realistic.html                    # realistiškas 3D avataras (PBR, SSS, sakados, alsavimas)
 talking-face-vrm.html                          # VRoid (VRM) avataras, three-vrm 3.5.5 (AGENTS.md 2a)
 avatars/*.glb                                  # avatarų modeliai
 blender/make_avatar.py                         # MPFB avataro generacija (Windows originalas)
