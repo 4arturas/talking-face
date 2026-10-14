@@ -11,6 +11,8 @@ npm start
 npm start & sleep 2 && npm run show
 ```
 
+Atidaryk `http://localhost:3000/` – visi puslapiai (2D, 3D, GLB, VRM) antd tabuose.
+
 Išjungti (atlaisvinti 3000 portą):
 
 ```bash

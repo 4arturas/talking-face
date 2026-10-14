@@ -3,7 +3,7 @@
  * kad avataras iš karto ištartų say.txt tekstą.
  *
  *   npm start                                (serveris, kitame lange)
- *   npm run show                             (talking-face-avatars.html)
+ *   npm run show                             (index.html – visi puslapiai tabuose)
  *   npm run show -- talking-face-3d.html     (kitas puslapis)
  *
  * Naršyklė paleidžiama su --autoplay-policy=no-user-gesture-required ir atskiru
@@ -18,7 +18,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 
-const page = process.argv[2] || 'talking-face-avatars.html';
+const page = process.argv[2] || 'index.html';
 const url = `http://localhost:${process.env.PORT || 3000}/${page}`;
 
 const candidates = process.platform === 'win32'

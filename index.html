@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kalbantys veidai</title>
+  <!--
+    Visi talking-face puslapiai viename lange: React 19 + antd 6 Tabs.
+    Kiekvienas tabas – esamas puslapis <iframe> viduje (puslapiai neperrašyti).
+    Rodomas tik aktyvus tabas (destroyOnHidden), todėl say.txt tekstą taria tik jis.
+    Paleidimas: npm start -> http://localhost:3000/  (file:// netinka mikrofonui ir Ollama).
+  -->
+  <script src="https://unpkg.com/@babel/standalone@7.25.9/babel.min.js"></script>
+  <script type="module">
+    import React from "https://esm.sh/react@19";
+    import { createRoot } from "https://esm.sh/react-dom@19/client";
+    import { Tabs } from "https://esm.sh/antd@6.4.4?bundle";
+
+    globalThis.React = React;
+    globalThis.ReactDOM = { createRoot };
+    globalThis.antd = { Tabs };
+    window.dispatchEvent(new Event('libs-ready'));
+  </script>
+  <style>
+    html, body { margin: 0; height: 100%; }
+    body { font-family: system-ui, sans-serif; }
+    #root { height: 100%; }
+    .app { height: 100%; display: flex; flex-direction: column; }
+    .app .ant-tabs { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .app .ant-tabs-nav { margin: 0 !important; padding: 0 16px; }
+    .app .ant-tabs-content-holder, .app .ant-tabs-content, .app .ant-tabs-tabpane { flex: 1; min-height: 0; height: 100%; }
+    .page-frame { display: block; width: 100%; height: 100%; border: 0; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+  const PAGES = [
+    { key: '2d',  label: '2D veidai',     src: 'talking-face.html' },
+    { key: '3d',  label: '3D veidas',     src: 'talking-face-3d.html' },
+    { key: 'glb', label: 'GLB avatarai',  src: 'talking-face-avatars.html' },
+    { key: 'vrm', label: 'VRM avatarai',  src: 'talking-face-vrm.html' },
+  ];
+  const DEFAULT_KEY = 'glb';
+
+  function keyFromHash() {
+    const k = location.hash.slice(1);
+    return PAGES.some(p => p.key === k) ? k : DEFAULT_KEY;
+  }
+
+  function App() {
+    const { Tabs } = antd;
+    const [active, setActive] = React.useState(keyFromHash);
+
+    React.useEffect(() => {
+      const onHash = () => setActive(keyFromHash());
+      window.addEventListener('hashchange', onHash);
+      return () => window.removeEventListener('hashchange', onHash);
+    }, []);
+
+    const items = PAGES.map(p => ({
+      key: p.key,
+      label: p.label,
+      children: (
+        <iframe
+          className="page-frame"
+          src={p.src}
+          title={p.label}
+          allow="microphone; autoplay"
+        />
+      ),
+    }));
+
+    return (
+      <div className="app">
+        <Tabs
+          activeKey={active}
+          items={items}
+          destroyOnHidden
+          onChange={k => { history.replaceState(null, '', '#' + k); setActive(k); }}
+        />
+      </div>
+    );
+  }
+
+  const start = () => ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  if (globalThis.antd) start(); else window.addEventListener('libs-ready', start, { once: true });
+</script>
+</body>
+</html>

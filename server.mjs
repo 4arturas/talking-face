@@ -3,7 +3,7 @@
  *
  * Vienu metu:
  *   - patiekia projekto HTML puslapius (kaip python -m http.server), kad būtų
- *     vienas adresas:  http://localhost:3000/talking-face-avatars.html
+ *     vienas adresas:  http://localhost:3000/  (index.html: visi puslapiai tabuose)
  *   - suteikia /api/tts balsus:
  *       GET /api/tts?text=...&engine=auto|piper|edge&voice=lt-LT-OnaNeural
  *     engine=auto (numatytasis): pirma bandoma Piper (offline, patikimas),
@@ -243,7 +243,7 @@ function handleVoices(req, res) {
 async function serveStatic(req, res, url) {
   let p = decodeURIComponent(url.pathname);
   if (p === '/') {
-    res.writeHead(301, { Location: '/talking-face-avatars.html' });
+    res.writeHead(301, { Location: '/index.html' });
     res.end();
     return;
   }
@@ -312,5 +312,5 @@ const server = http.createServer((req, res) => {
 loadSherpa();
 
 server.listen(PORT, () => {
-  console.log(`Talking-face serveris veikia: http://localhost:${PORT}/talking-face-avatars.html`);
+  console.log(`Talking-face serveris veikia: http://localhost:${PORT}/  (index.html su tabais)`);
 });

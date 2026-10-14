@@ -7,10 +7,11 @@ The UI texts are Lithuanian too.
 
 ## 1. What the project is
 
-Static HTML pages, no build step, no package.json. Everything runs in the browser.
+Static HTML pages, no build step. Everything runs in the browser.
 
 | File | What it does |
 |---|---|
+| `index.html` | Start page: React 19 + antd 6 (esm.sh, Babel standalone) `Tabs`; each tab is one page below in an `<iframe allow="microphone; autoplay">`. `destroyOnHidden`: only the active tab runs, so `say.txt` is spoken once. Tab in `#2d`/`#3d`/`#glb`/`#vrm`. New page = new entry in `PAGES`. |
 | `talking-face.html` | 2D faces (SVG/canvas): human, girl, robot, realistic. |
 | `talking-face-3d.html` | One 3D face (`facecap.glb` from the three.js CDN). |
 | `talking-face-avatars.html` | Main page: full 3D avatars (GLB), voice, mic, Ollama chat. |
@@ -77,7 +78,7 @@ tools/run-server.sh          # http://localhost:3000/talking-face-avatars.html
 What the server (`server.mjs` in the project root, port 3000, one npm dependency: `msedge-tts`;
 start with `npm install` + `npm start`; `run-server.sh` runs `npm install` on first start) does:
 
-- serves the project pages too (`/` redirects to `talking-face-avatars.html`);
+- serves the project pages too (`/` redirects to `index.html`, the tab page);
 - `GET /api/tts?text=...&engine=auto|piper|edge&voice=lt-LT-OnaNeural` — `auto` tries
   Piper first (offline), then Microsoft Edge voices via the npm package `msedge-tts`
   (`lt-LT-OnaNeural`/`lt-LT-LeonasNeural`, online, no Python);
