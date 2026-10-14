@@ -1,7 +1,7 @@
 # HANDOFF — kas padaryta ir kaip tęsti
 
 Šis failas skirtas būsimam LLM agentui: glaustai aprašo, kas jau pastatyta, kur kas gyvena,
-kaip paleisti ir kokių spąstų vengti. Detalesnis naudotojo dokumentas yra `README.md`.
+kaip paleisti ir kokių spąstų vengti. Detalesnės techninės pastabos – `AGENTS.md`; `README.md` – tik paleidimas ir išjungimas.
 
 ## 1. Projekto esmė
 
@@ -19,19 +19,21 @@ Lietuviški UI tekstai, bendravimas su naudotoju – lietuviškai, paprastai.
 
 ```
 talking-face.html / -3d.html / -avatars.html   # puslapiai (viskas inline, three.js iš CDN)
+talking-face-vrm.html                          # VRoid (VRM) avataras, three-vrm 3.5.5 (AGENTS.md 2a)
 avatars/*.glb                                  # avatarų modeliai
 blender/make_avatar.py                         # MPFB avataro generacija (Windows originalas)
 blender/make_avatar.sh                         # Linux/macOS wrapper
 tools/make_rpm_variant.py / .sh                # „reminis-PMG” spalvojimas (Pillow)
 tools/run-server.sh                            # paleidžia NTTS serverį (Linux)
-tools/tts-server/server.mjs                    # vietinis balsų serveris (nulinės npm priklausomybės)
-README.md                                      # naudotojo dokumentacija
+server.mjs                                     # vietinis balsų serveris (npm: msedge-tts)
+README.md                                      # paleidimas / išjungimas
+AGENTS.md                                      # techninės pastabos agentui
 blender/work/                              # .gitignored (Blender darbo katalogas)
 ```
 
 ## 3. Dvi mašinos, du pasauliai
 
-- **Windows (savininko)** – originalūs `.py` scriptai, PowerShell komandos README faile.
+- **Windows (savininko)** – originalūs `.py` scriptai, PowerShell komandos AGENTS.md faile.
 - **Linux (Pop!_OS 22.04, NVidia RTX 2070 SUPER 8 GB)** – šiame checkout'ai. Kadangi
   Windows naudoja `.py`, o Linux tik wrapperius, **nauji scriptai kuriami kaip `.sh` wrappers,
   `.py` paliekami Windows originalui**. Jokios `.py` modifikacijos savininko Windows neatrašys.
@@ -53,7 +55,7 @@ Ollama 0.34.0, Blender 5.2.2 portable, MPFB 2.0.18 + asset packs.
 ## 5. Kaip paleisti
 
 ```bash
-tools/run-server.sh                 # = node tools/tts-server/server.mjs (portas 3000)
+tools/run-server.sh                 # = node server.mjs (portas 3000)
 # atidaryti: http://localhost:3000/talking-face-avatars.html
 ```
 
@@ -65,24 +67,31 @@ Ollama pokalbiui pasiekiamas tiesiai iš `localhost:8000` (CORS), proksiuoti ner
 
 ## 6. Vietinis balsų serveris (naujausia dalis)
 
-`tools/tts-server/server.mjs` – vienintelis Node failas, 0 npm paketų (tik `node:*` moduliai).
+`server.mjs` (šaknyje) – vienintelis Node failas; npm paketas `msedge-tts` (Edge balsai).
 
 - `GET /api/tts?text=...&engine=auto|piper|edge&voice=lt-LT-OnaNeural`
   - `engine=auto` (numatytas): pirma `piper`, jei klaida → `edge-tts`; jei ir tai – HTTP 503.
-  - `piper`: paleidžia `piper -m <modelis> -f -` (WAV į stdout), tekstas į stdin.
-    **Kritiška:** be `-f -` Piper bando groti per `ffplay` ir rašo į `output.wav`, o ne į stdout –
-    klaidos tekstas: „Audio playback is not available (ffplay). Writing audio to output.wav”.
-  - `edge`: paleidžia `python3 -m edge_tts --voice ... --text ... --write-media -` (MP3 į stdout).
+  - `piper`: per npm `sherpa-onnx-node` (Node, be Python): `OfflineTts` sukuriamas vieną kartą
+    paleidžiant serverį (`loadSherpa()`, ~1,5 s), atsakymas ~0,2–0,5 s; WAV koduoja `toWav()`
+    (garsumas normalizuojamas kaip Python piper). Reikia `espeak-ng-data/` ir failų, kuriuos sukuria
+    `node tools/piper-to-sherpa.mjs` (`.sherpa.onnx` su metaduomenimis, `.tokens.txt`).
+    Jei jų nėra – atsarginis kelias: `python -m piper -m <modelis> -f <failas>` (~3 s/užklausa).
+  - `edge`: npm `msedge-tts` (MP3, online).
 - `GET /api/voices` – balsų sąrašas JSON.
+- `GET /api/say/events` – SSE: pasikeitus `say.txt` (šaknyje), tekstas nusiunčiamas puslapiams,
+  avataras jį ištaria (`sayFromServer()`; iki pirmo paspaudimo laukia, nebent puslapis atidarytas
+  per `npm run show` – Chrome su `--autoplay-policy=no-user-gesture-required`; Edge vėliavą
+  ignoruoja, jei politika `AutoplayAllowed = 0`).
 - Užklausos vykdomos **paeiliui** (Piper/edge yra CPU pertekūviniai procesai).
 - CORS ant API: `Access-Control-Allow-Origin: *`, kad veiktų ir iš `localhost:8000`/file://.
 
 Balsai:
 - Piper: `lt_LT-reginute1-medium` („Aistė"), 61 MB, WAV 22050 Hz, offline.
 - Edge: `lt-LT-OnaNeural` („Ona", online), `lt-LT-LeonasNeural` („Leonas", online).
-- PIPER konfigūra: kintamieji `PIPER_BIN`, `PIPER_MODEL`, `PYTHON_BIN`, `PORT`.
+- PIPER konfigūra: kintamieji `PIPER_MODEL`, `ESPEAK_DATA`, `PORT`; Python atsarginiam keliui –
+  `PIPER_BIN`, `PYTHON_BIN`.
 
-Priklausomybės (pip --user): `piper-tts` (v1.8.0, su `edge-tts`).
+Priklausomybės: npm `msedge-tts`, `sherpa-onnx-node`. Python (`piper-tts`) nebūtinas.
 
 ## 7. Balsų prioritetas puslapiuose (visuose trijuose)
 
@@ -121,7 +130,7 @@ tools/make_rpm_variant.sh                          # reikalauja Pillow
 ```
 
 `make_avatar.sh` randa Blender per `$BLENDER` → `~/opt/talking-face/blender/...` → `PATH`.
-GLB reikalavimai (žr. README): morphus 15 visem `viseme_*` + 52 ARKit, bones pervedant
+GLB reikalavimai (žr. AGENTS.md): morphus 15 visem `viseme_*` + 52 ARKit, bones pervedant
 (`AvatarRoot`, `Jaw`, `Brow_L/R`, `EyeBlink_L/R` ir pan.), `alphaMode` MASK/tekstūros.
 Vienas end-to-end testas praėjo (12.3 MB GLB).
 
@@ -132,17 +141,19 @@ Spąstai (jau išspręsti): Blender turi atidaryti failą ir `bpy.app.handlers`,
 
 Padaryta:
 - [x] MPFB + asset packs + vienas pilnas end-to-end GLB testas
-- [x] `.sh` wrappers (make_avatar, make_rpm_variant) + README Linux sekcija
+- [x] `.sh` wrappers (make_avatar, make_rpm_variant) + AGENTS.md Linux sekcija
 - [x] Ollama: systemd paslauga + `gemma4:e2b` + `qwen3:8b` (GPU patvirtintas)
-- [x] `PREFERRED_MODELS` ir README atnaujinti su `qwen3:8b`
+- [x] `PREFERRED_MODELS` ir AGENTS.md atnaujinti su `qwen3:8b`
 - [x] Piper (`lt_LT-reginute1-medium`) sintezė patvirtinta; `phoneme_type` perrašytas į `"espeak"`
-- [x] `tools/tts-server/server.mjs` + `tools/run-server.sh` + README TTS skyrius
+- [x] `server.mjs` + `tools/run-server.sh` + AGENTS.md TTS skyrius
 - [x] Visi 3 puslapiai: vietinis → natyvus → Google prioritetas
+- [x] `talking-face-vrm.html`: VRM avataras (Seed-san, Twist sample, savas .vrm), meta + išraiškų sąrašas
 
 Planuojama / lieka:
 - [ ] Naršyklės funkcinis testas su realiu garso atkūrimu (Playwright neįdiegtas – savininkas atsisakė).
 - [ ] Galbūt `gemma3:12b` bandymas (jei savininkas panorės geresnės pokalbio kokybės).
-- [ ] README: galima pridėti Windows paleidimo su viengubu Node (jei savininkas panorės).
+- [ ] AGENTS.md: galima pridėti Windows paleidimo su viengubu Node (jei savininkas panorės).
+- [ ] VRM puslapis: rankų padėtį, galvos linguojimą ir VRM 0.x modelį patikrinti naršyklėje.
 - [ ] „Kalbėk“ garsui – jei `talking-face-avatars.html` pastebimas delsimas, galima prebufferinti.
 
 ## 11. Komandos, kurios padeda toliau
@@ -150,7 +161,7 @@ Planuojama / lieka:
 ```bash
 # serverio valdymas (PID faile, kad pkill nepalytėtų savo shell):
 [ -f /tmp/tts-server.pid ] && kill "$(cat /tmp/tts-server.pid)"
-nohup node tools/tts-server/server.mjs >/tmp/tts-server.log 2>&1 & echo $! >/tmp/tts-server.pid
+nohup node server.mjs >/tmp/tts-server.log 2>&1 & echo $! >/tmp/tts-server.pid
 
 # balsų testai:
 echo "Sveiki!" | piper -m ~/opt/talking-face/piper/lt_LT-reginute1-medium.onnx -f - > out.wav

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Linux/macOS wrapper for tools/make_rpm_variant.py (see README, section 4).
+# Linux/macOS wrapper for tools/make_rpm_variant.py (see AGENTS.md, section 4).
 # Needs Pillow:  python3 -m pip install --user pillow
 set -euo pipefail
 

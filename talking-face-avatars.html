@@ -125,6 +125,7 @@
 
 <div class="panel">
   <h1>Kalbantys 3D avatarai</h1>
+  <div class="note"><a href="talking-face-vrm.html">VRoid (VRM) avataras →</a></div>
   <label for="avatar">Avataras</label>
   <select id="avatar">
     <option value="brunette">Brunetė (Ready Player Me, 4,7 MB)</option>
@@ -142,6 +143,8 @@
     <option value="lt-LT">lt-LT (lietuvių)</option>
     <option value="en-US">en-US (English)</option>
   </select>
+  <label for="voice">Balsas</label>
+  <select id="voice"></select>
   <div id="voiceNote" class="note"></div>
   <label for="text">Tekstas</label>
   <textarea id="text">Labas! Aš esu kalbantis avataras. Ar girdi mane?</textarea>
@@ -161,12 +164,6 @@
   <textarea id="question" placeholder="Paklausk ko nors… (Enter – siųsti, Shift+Enter – nauja eilutė)"></textarea>
   <div class="buttons"><button id="askBtn" type="button">Klausti</button></div>
   <div id="chatNote" class="note"></div>
-
-  <div class="hint">Pele galima sukti vaizdą, ratuku – priartinti. Ctrl+Enter – ištarti tekstą.
-    Reikia interneto. Mikrofonui per file:// gali reikėti localhost.
-    Pokalbiui puslapį atidaryk per localhost (pvz. <code>python -m http.server</code>) – Ollama neleidžia užklausų iš file://.
-    Modeliai: <a href="https://github.com/met4citizen/TalkingHead" target="_blank" rel="noopener">TalkingHead</a>.
-    <a href="talking-face.html">2D veidai</a> ·     <a href="talking-face-3d.html">3D veidas</a></div>
 </div>
 
 <script type="module">
@@ -179,15 +176,14 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 // Konkretus commit'as, kad modeliai nepasikeistų.
 const BASE = 'https://raw.githubusercontent.com/met4citizen/TalkingHead/cf170209c49f8f67f96e3ed55bd7e9db06c5b2b3/avatars/';
 const AVATARS = {
-  brunette:  'Ready Player Me. Licencija CC BY-NC 4.0 – tik nekomerciniam naudojimui.',
-  'brunette-t': 'Ready Player Me, T poza (rankos nuleidžiamos kode). Licencija CC BY-NC 4.0 – tik nekomerciniam naudojimui.',
-  avaturn:   'Avaturn. Tik nekomerciniam naudojimui.',
-  avatarsdk: 'AvatarSDK. Tik nekomerciniam naudojimui.',
-  vroid:     'VRoid Studio. Tik nekomerciniam naudojimui.',
-  mpfb:      'MakeHuman / MPFB. Licencija CC0 – galima naudoti laisvai.',
-  ona:       'Savas avataras (blender/make_avatar.py, MPFB, CC0). Reikia localhost.',
-  saule:     'Perdažyta Brunetė (tools/make_rpm_variant.py): šviesūs plaukai, be akinių. ' +
-             'Licencija CC BY-NC 4.0 (Ready Player Me / met4citizen TalkingHead) – tik nekomerciniam naudojimui. Reikia localhost.'
+  brunette:  '',
+  'brunette-t': 'T poza (rankos nuleidžiamos kode).',
+  avaturn:   '',
+  avatarsdk: '',
+  vroid:     '',
+  mpfb:      '',
+  ona:       'Savas avataras (blender/make_avatar.py, MPFB). Reikia localhost.',
+  saule:     'Perdažyta Brunetė (tools/make_rpm_variant.py): šviesūs plaukai, be akinių. Reikia localhost.'
 };
 // Savi avatarai iš šio projekto aplanko (sukurti blender/make_avatar.py).
 const LOCAL_AVATARS = { ona: 'avatars/ona.glb', saule: 'avatars/saule.glb' };
@@ -505,16 +501,114 @@ function setNote(el, text, warn) {
   el.classList.toggle('warn', !!warn);
 }
 
+/* ---------- Balso pasirinkimas ---------- */
+// Vietinio serverio balsai ateina iš /api/voices (Piper „Aistė", Edge „Ona"/„Leonas", anglų Edge).
+// Prie jų pridedami šios naršyklės balsai ir Google. Pasirinkimas saugomas kiekvienai kalbai atskirai.
+const VOICE_KEY = 'talking-face.voice.';
+const voiceState = { server: null, list: [] };
+const sameLang = (a, b) => String(a || '').replace('_', '-').toLowerCase().slice(0, 2)
+  === String(b || '').toLowerCase().slice(0, 2);
+
+async function loadServerVoices() {
+  try {
+    const r = await fetch(`${ttsBase()}/api/voices`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    voiceState.list = [...(data.piper || []), ...(data.edge || [])];
+    voiceState.server = true;
+  } catch {
+    voiceState.list = [];
+    voiceState.server = false;
+  }
+  fillVoices();
+}
+
+function fillVoices() {
+  const lang = $('lang').value;
+  const sel = $('voice');
+  const saved = localStorage.getItem(VOICE_KEY + lang) || 'auto';
+  sel.innerHTML = '';
+  const add = (parent, value, text) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    parent.appendChild(o);
+  };
+  const group = text => {
+    const g = document.createElement('optgroup');
+    g.label = text;
+    sel.appendChild(g);
+    return g;
+  };
+  add(sel, 'auto', 'Automatiškai');
+  const server = voiceState.list.filter(v => sameLang(v.lang, lang));
+  if (server.length) {
+    const g = group('Vietinis serveris');
+    server.forEach(v => add(g, v.id === 'piper' ? 'piper' : `edge:${v.id}`, v.label));
+  }
+  const native = 'speechSynthesis' in window
+    ? speechSynthesis.getVoices().filter(v => sameLang(v.lang, lang)) : [];
+  if (native.length) {
+    const g = group('Naršyklės balsai');
+    native.forEach(v => add(g, `native:${v.name}`, `${v.name} (${v.lang})`));
+  }
+  add(group('Internetas'), 'google', 'Google Translate (online)');
+  sel.value = [...sel.options].some(o => o.value === saved) ? saved : 'auto';
+  describeVoice();
+}
+
+function chosenVoiceLabel() {
+  const o = $('voice').selectedOptions[0];
+  return o ? o.textContent : '';
+}
+
+// Ištaria tekstą pasirinktu balsu. Jei vietinis serveris nepasiekiamas –
+// naršyklės balsas, kitaip Google (fallbackVoice).
+function speakChosen(text, onDone) {
+  const lang = $('lang').value;
+  const choice = $('voice').value || 'auto';
+  if (choice === 'google') return speakGoogle(text, lang, onDone);
+  if (choice.startsWith('native:')) {
+    const v = 'speechSynthesis' in window
+      ? speechSynthesis.getVoices().find(x => x.name === choice.slice(7)) : null;
+    return v ? speakNative(text, lang, v, onDone) : fallbackVoice(text, lang, onDone);
+  }
+  if (choice === 'piper') {
+    return speakLocal(text, lang, onDone, fallbackVoice, 'engine=piper', chosenVoiceLabel());
+  }
+  if (choice.startsWith('edge:')) {
+    return speakLocal(text, lang, onDone, fallbackVoice,
+      `engine=edge&voice=${encodeURIComponent(choice.slice(5))}`, chosenVoiceLabel());
+  }
+  // Automatiškai: lietuviškai Piper → Edge „Ona"; kitai kalbai – pirmas tos kalbos Edge balsas
+  // (Piper balsas tik lietuviškas).
+  if (sameLang(lang, 'lt')) return speakLocal(text, lang, onDone, fallbackVoice);
+  const edge = voiceState.list.find(v => v.id !== 'piper' && sameLang(v.lang, lang));
+  if (!edge) return fallbackVoice(text, lang, onDone);
+  speakLocal(text, lang, onDone, fallbackVoice,
+    `engine=edge&voice=${encodeURIComponent(edge.id)}`, edge.label);
+}
+
 function describeVoice() {
   const lang = $('lang').value;
-  const { voice } = pickVoice(lang);
-  if (!voice) {
-    setNote($('voiceNote'), 'Balsų tvarka: vietinis serveris (Piper „Aistė" / Edge „Ona"/„Leonas") → Google. '
-      + 'Natyvių naršyklės balsų nerasta.', true);
-    return;
+  const choice = $('voice').value || 'auto';
+  const { voice, fallback } = pickVoice(lang);
+  const nativeText = voice && !fallback ? `naršyklės „${voice.name}"` : 'naršyklės balsas';
+  let text;
+  if (choice === 'auto') {
+    text = sameLang(lang, 'lt')
+      ? `Tvarka: vietinis serveris (Piper „Aistė" → Edge „Ona") → ${nativeText} → Google.`
+      : `Tvarka: vietinis serveris (Edge) → ${nativeText} → Google.`;
+  } else if (choice === 'google') {
+    text = 'Google Translate: tekstas siunčiamas Google.';
+  } else if (choice.startsWith('native:')) {
+    text = 'Naršyklės balsas, be serverio.';
+  } else {
+    text = '';
   }
-  setNote($('voiceNote'), `Balsų tvarka: vietinis serveris (Piper „Aistė" / Edge „Ona"/„Leonas") → `
-    + `naršyklės „${voice.name}" (${voice.lang}) → Google.`, false);
+  const down = voiceState.server === false;
+  if (down) text += ' Vietinis balsų serveris nepasiekiamas (paleisk: npm start).';
+  setNote($('voiceNote'), text, down);
 }
 
 function speak() {
@@ -530,7 +624,7 @@ function speak() {
 // Tekstas siunčiamas Google. Vienai užklausai – iki ~200 simbolių, todėl tekstą skaidome.
 const GOOGLE_TTS_MAX = 190;
 
-// Vietinis balsų serveris (tools/tts-server/server.mjs): Piper „Aistė" (offline) arba
+// Vietinis balsų serveris (server.mjs): Piper „Aistė" (offline) arba
 // edge-tts (Microsoft „Ona"/„Leonas", online). Per localhost:3000 nuoroda paprasta,
 // kitaip – absoliuti, kad veiktų ir iš python http.server / file://.
 const TTS_PORT = 3000;
@@ -597,7 +691,7 @@ function speakGoogle(text, lang, onDone) {
 
 // Vietinis balsas: serveris bando Piper (offline), tada edge-tts (Ona). Jei ir tai
 // nepavyksta arba serveris nepasiekiamas – kviečiamas fallback (naršyklės balsas, kitaip Google).
-function speakLocal(text, lang, onDone, fallback) {
+function speakLocal(text, lang, onDone, fallback, query = 'engine=auto', label = 'Piper / Edge') {
   const token = {};
   const parts = splitForTts(text);
   state.utterance = token;
@@ -616,7 +710,7 @@ function speakLocal(text, lang, onDone, fallback) {
     if (state.utterance !== token) return;
     if (i >= parts.length) return finish();
     const part = parts[i];
-    const audio = new Audio(`${ttsBase()}/api/tts?engine=auto&text=${encodeURIComponent(part)}`);
+    const audio = new Audio(`${ttsBase()}/api/tts?${query}&text=${encodeURIComponent(part)}`);
     state.audio = audio;
     audio.onplaying = () => {
       if (state.utterance !== token) return;
@@ -628,7 +722,7 @@ function speakLocal(text, lang, onDone, fallback) {
       frames.forEach(f => { f.t = now + (f.t - now) * k; });
       state.frames = frames;
       state.speaking = true;
-      setNote($('status'), 'Kalbu… (Piper / Edge)', false);
+      setNote($('status'), `Kalbu… (${label})`, false);
     };
     audio.onended = () => playPart(i + 1);
     const fall = () => {
@@ -684,7 +778,7 @@ function fallbackVoice(text, lang, onDone) {
 // Ištaria vieną tekstą; onDone kviečiamas tik jei kalba baigėsi natūraliai (ne nutraukta).
 // Tvarka: vietinis serveris (Piper/Edge) → naršyklės balsas → Google.
 function speakText(text, onDone) {
-  speakLocal(text, $('lang').value, onDone, fallbackVoice);
+  speakChosen(text, onDone);
 }
 
 function stopSpeech() {
@@ -997,6 +1091,43 @@ requestAnimationFrame(tick);
 /* ---------- Valdikliai ---------- */
 
 $('speakBtn').addEventListener('click', speak);
+// Tekstas iš serverio failo say.txt (SSE, /api/say/events): failui pasikeitus avataras jį ištaria.
+// Naršyklė leidžia garsą tik po vartotojo paspaudimo, todėl iki tol tekstas laukia.
+let pendingSay = null;
+// Ar naršyklė leidžia garsą be paspaudimo (pvz. paleista per npm run show)? Bandome tylų garsą.
+async function canPlaySound() {
+  if (navigator.userActivation && navigator.userActivation.hasBeenActive) return true;
+  try {
+    const a = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAACAgICA');
+    a.volume = 0;
+    await a.play();
+    return true;
+  } catch (e) {
+    return e.name !== 'NotAllowedError';
+  }
+}
+async function sayFromServer(text) {
+  $('text').value = text;
+  if (!(await canPlaySound())) {
+    pendingSay = text;
+    setNote($('status'), 'Gautas tekstas iš say.txt. Spustelėk puslapį – tada ištarsiu (be paspaudimo: npm run show).', true);
+    return;
+  }
+  pendingSay = null;
+  speak();
+}
+document.addEventListener('pointerdown', e => {
+  if (pendingSay === null) return;
+  pendingSay = null;
+  if (e.target.closest('#speakBtn')) return;
+  setTimeout(speak, 0);
+});
+if ('EventSource' in window && location.protocol !== 'file:') {
+  new EventSource(`${ttsBase()}/api/say/events`).addEventListener('say', e => {
+    const { text } = JSON.parse(e.data);
+    if (text) sayFromServer(text);
+  });
+}
 $('micBtn').addEventListener('click', toggleMic);
 $('stopBtn').addEventListener('click', () => {
   stopChat();
@@ -1014,11 +1145,16 @@ $('text').addEventListener('keydown', e => {
 $('lang').addEventListener('change', () => {
   const t = $('text');
   if (Object.values(DEFAULT_TEXT).includes(t.value.trim())) t.value = DEFAULT_TEXT[$('lang').value];
-  describeVoice();
+  fillVoices();
 });
 $('avatar').addEventListener('change', () => loadAvatar($('avatar').value));
-if ('speechSynthesis' in window) speechSynthesis.addEventListener('voiceschanged', describeVoice);
-describeVoice();
+$('voice').addEventListener('change', () => {
+  localStorage.setItem(VOICE_KEY + $('lang').value, $('voice').value);
+  describeVoice();
+});
+if ('speechSynthesis' in window) speechSynthesis.addEventListener('voiceschanged', fillVoices);
+fillVoices();
+loadServerVoices();
 loadModels();
 loadAvatar($('avatar').value);
 

@@ -6,4 +6,6 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec node "$here/tts-server/server.mjs" "$@"
+root="$(dirname "$here")"
+[ -d "$root/node_modules" ] || (cd "$root" && npm install --no-fund --no-audit)
+exec node "$root/server.mjs" "$@"

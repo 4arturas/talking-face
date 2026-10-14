@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Linux/macOS wrapper for blender/make_avatar.py (see README, section 3).
+# Linux/macOS wrapper for blender/make_avatar.py (see AGENTS.md, section 3).
 #
 # Usage:
 #   blender/make_avatar.sh <output.glb> [preset]
 #
 # Blender is found in this order:
 #   1. $BLENDER (set it to your blender binary to override)
-#   2. the portable build under ~/opt/talking-face (see README)
+#   2. the portable build under ~/opt/talking-face (see AGENTS.md)
 #   3. "blender" on PATH
 set -euo pipefail
 

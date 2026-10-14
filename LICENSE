@@ -39,3 +39,24 @@ avatars/saule.glb
 
 Avatars loaded at runtime from the TalkingHead repository are not part of this
 repository and keep their own licenses (mostly CC BY-NC 4.0).
+
+-------------------------------------------------------------------------------
+VRM page (talking-face-vrm.html) – loaded at runtime, not stored in this repo
+-------------------------------------------------------------------------------
+
+@pixiv/three-vrm 3.5.5 – MIT License, (c) pixiv Inc.
+  https://github.com/pixiv/three-vrm
+
+Sample models from https://github.com/vrm-c/vrm-specification (samples/),
+both under the VRM Public License 1.0 (https://vrm.dev/licenses/1.0/):
+
+Seed-san.vrm
+  Seed-san model by VirtualCast, Inc. (credit required).
+  Commercial use (corporation) and redistribution allowed.
+
+VRM1_Constraint_Twist_Sample.vrm
+  (c) 2022 pixiv Inc. Commercial use (corporation) and redistribution allowed;
+  credit not required. Antisocial or hate use not allowed.
+
+Own .vrm files loaded with the "Įkelti savo .vrm" button keep the licence written
+in their VRM meta data (the page shows it).
