@@ -20,9 +20,11 @@
  *   npm start                       (= node server.mjs, numatyta: port 3000)
  *   PORT=8080 node server.mjs
  *
- * Priklausomybės: npm msedge-tts (Edge balsai), npm sherpa-onnx-node (Piper be Python).
- * Piper modelis: ~/opt/talking-face/piper/lt_LT-reginute1-medium.onnx (+ .onnx.json),
- * šalia – espeak-ng-data/ ir `node tools/piper-to-sherpa.mjs` sukurti failai.
+ * Priklausomybės: npm msedge-tts (Edge balsai); Piper be Python: onnxruntime-node +
+ * @echogarden/espeak-ng-emscripten (lietuviškas kirčiavimas, lib/phonemize-lithuanian.mjs),
+ * atsarginis – sherpa-onnx-node (be kirčių žodyno).
+ * Piper modelis: ~/opt/talking-face/piper/lt_LT-reginute1-medium.onnx (+ .orig.onnx.json),
+ * šalia – lithuanian/ (kirčių žodynai), espeak-ng-data/ ir `node tools/piper-to-sherpa.mjs` failai.
  * Jei jų nėra, naudojamas pip --user piper-tts (arba PIPER_BIN) – veikia, bet lėčiau.
  */
 
@@ -106,6 +108,61 @@ function run(cmd, args, input = '', outFile = null) {
 const PIPER_BASE = PIPER_MODEL.replace(/\.onnx$/, '');
 const ESPEAK_DATA = process.env.ESPEAK_DATA || path.join(path.dirname(PIPER_MODEL), 'espeak-ng-data');
 let sherpaTts = null;
+
+// Piper su lietuvišku kirčiavimu (kaip Python piper): lib/phonemize-lithuanian.mjs
+// (espeak-ng WASM + kirčių žodynas) + onnxruntime-node. Reikia originalaus modelio JSON
+// (.orig.onnx.json, phoneme_type "lithuanian") ir žodynų katalogo (PIPER_LT_DICT).
+const PIPER_LT_DICT = process.env.PIPER_LT_DICT || path.join(path.dirname(PIPER_MODEL), 'lithuanian');
+let piperOrt = null;
+async function loadPiperOrt() {
+  const cfgFile = [`${PIPER_MODEL.replace(/\.onnx$/, '')}.orig.onnx.json`, `${PIPER_MODEL}.json`]
+    .find(f => existsSync(f));
+  if (!existsSync(PIPER_MODEL) || !cfgFile || !existsSync(path.join(PIPER_LT_DICT, 'lt_kirciai.tsv'))) {
+    console.log('Piper: lietuviško kirčiavimo failų nėra – bandysiu sherpa-onnx. Žr. AGENTS.md.');
+    return false;
+  }
+  try {
+    const cfg = JSON.parse(readFileSync(cfgFile, 'utf8'));
+    const [{ default: ort }, { createLithuanianPhonemizer }] = await Promise.all([
+      import('onnxruntime-node'), import('./lib/phonemize-lithuanian.mjs')]);
+    const [session, phonemizer] = await Promise.all([
+      ort.InferenceSession.create(PIPER_MODEL, { intraOpNumThreads: 2 }),
+      createLithuanianPhonemizer({ dictDir: PIPER_LT_DICT, phonemeIdMap: cfg.phoneme_id_map }),
+    ]);
+    const inf = cfg.inference || {};
+    piperOrt = {
+      ort, session, phonemizer,
+      sampleRate: cfg.audio?.sample_rate || 22050,
+      noise: inf.noise_scale ?? 0.667, length: inf.length_scale ?? 1, noiseW: inf.noise_w ?? 0.8,
+    };
+    console.log(`Piper: onnxruntime-node + lietuviškas kirčiavimas (${phonemizer.dictionarySize} žodžių).`);
+    return true;
+  } catch (e) {
+    console.log(`Piper: lietuviškas kirčiavimas neįsikėlė (${e.message}) – bandysiu sherpa-onnx.`);
+    return false;
+  }
+}
+
+// Kiekvienas sakinys sintetinamas atskirai, garsas sujungiamas be tylos (kaip Python piper).
+async function synthPiperOrt(text, speed) {
+  const { ort, session, phonemizer, sampleRate, noise, length, noiseW } = piperOrt;
+  const parts = [];
+  for (const phonemes of phonemizer.phonemize(text)) {
+    const ids = phonemizer.toIds(phonemes);
+    const out = await session.run({
+      input: new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
+      input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
+      scales: new ort.Tensor('float32', Float32Array.from([noise, length / speed, noiseW]), [3]),
+    });
+    parts.push(out.output.data);
+  }
+  if (!parts.length) throw new Error('Piper: tekste nėra ką ištarti');
+  const samples = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  let pos = 0;
+  for (const p of parts) { samples.set(p, pos); pos += p.length; }
+  return toWav(samples, sampleRate);
+}
+
 function loadSherpa() {
   const model = `${PIPER_BASE}.sherpa.onnx`, tokens = `${PIPER_BASE}.tokens.txt`;
   if (!existsSync(model) || !existsSync(tokens) || !existsSync(ESPEAK_DATA)) {
@@ -200,6 +257,7 @@ async function synthPiper(text, speed = 1) {
   const trimmed = text.trim();
   // Tarpas pradžioje – kitaip Piper gali „nukąsti" pirmą garsą.
   const input = ` ${/[.!?…]$/.test(trimmed) ? trimmed : `${trimmed}.`}`;
+  if (piperOrt) return synthPiperOrt(input, speed);
   if (sherpaTts) {
     const a = await sherpaTts.generateAsync({ text: input, sid: 0, speed });
     return toWav(a.samples, a.sampleRate);
@@ -375,7 +433,8 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res, url);
 });
 
-loadSherpa();
+// sherpa-onnx įkeliamas tik jei naujas kelias nepavyko (du onnxruntime viename procese – rizika).
+if (!(await loadPiperOrt())) loadSherpa();
 
 server.listen(PORT, () => {
   console.log(`Talking-face serveris veikia: http://localhost:${PORT}/  (index.html su tabais)`);

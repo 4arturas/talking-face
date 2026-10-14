@@ -72,7 +72,11 @@ Ollama pokalbiui pasiekiamas tiesiai iš `localhost:8000` (CORS), proksiuoti ner
 - `GET /api/tts?text=...&engine=auto|piper|edge&voice=lt-LT-OnaNeural&speed=1`
   - `speed` 0.5–2: Piper (sherpa `speed`, Python `--length-scale`), Edge (SSML `rate`).
   - `engine=auto` (numatytas): pirma `piper`, jei klaida → `edge-tts`; jei ir tai – HTTP 503.
-  - `piper`: per npm `sherpa-onnx-node` (Node, be Python): `OfflineTts` sukuriamas vieną kartą
+  - `piper`: pirmenybė – `onnxruntime-node` + `lib/phonemize-lithuanian.mjs` (Piper lietuviško
+    fonemizatoriaus JS kopija su kirčių žodynu; espeak-ng per WASM `@echogarden/espeak-ng-emscripten`),
+    `loadPiperOrt()`/`synthPiperOrt()`, ~0,4 s/užklausa, teisingi kirčiai. Reikia žodynų
+    `~/opt/talking-face/piper/lithuanian/*.tsv` (env `PIPER_LT_DICT`). Jei jų nėra – sherpa:
+  - sherpa: per npm `sherpa-onnx-node` (Node, be Python): `OfflineTts` sukuriamas vieną kartą
     paleidžiant serverį (`loadSherpa()`, ~1,5 s), atsakymas ~0,2–0,5 s; WAV koduoja `toWav()`
     (garsumas normalizuojamas kaip Python piper). Reikia `espeak-ng-data/` ir failų, kuriuos sukuria
     `node tools/piper-to-sherpa.mjs` (`.sherpa.onnx` su metaduomenimis, `.tokens.txt`).
@@ -101,7 +105,8 @@ Balsai:
 - PIPER konfigūra: kintamieji `PIPER_MODEL`, `ESPEAK_DATA`, `PORT`; Python atsarginiam keliui –
   `PIPER_BIN`, `PYTHON_BIN`.
 
-Priklausomybės: npm `msedge-tts`, `sherpa-onnx-node`. Python (`piper-tts`) nebūtinas.
+Priklausomybės: npm `msedge-tts`, `onnxruntime-node`, `@echogarden/espeak-ng-emscripten`,
+`sherpa-onnx-node`. Python (`piper-tts`) nebūtinas.
 
 ## 7. Balsų prioritetas puslapiuose (visuose trijuose)
 
@@ -160,6 +165,8 @@ Padaryta:
 - [x] `talking-face-vrm.html`: VRM avataras (Seed-san, Twist sample, savas .vrm)
 - [x] Nukirpta kalbos pradžia (BT): tyla `TTS_LEAD_MS` serveryje + lūpų poslinkis puslapiuose
 - [x] Kalbėjimo greitis: antd `Slider` `index.html` + `localStorage['talking-face.speed']`, `/api/tts` `speed`
+- [x] Lietuviški Piper kirčiai be Python: `lib/phonemize-lithuanian.mjs` + `onnxruntime-node`
+      (404 sakiniai sutampa su Python; Whisper: „Klausimas“ vietoj „Klaujimas“)
 
 Planuojama / lieka:
 - [ ] Naršyklės funkcinis testas su realiu garso atkūrimu (Playwright neįdiegtas – savininkas atsisakė).

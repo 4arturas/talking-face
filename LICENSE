@@ -60,3 +60,18 @@ VRM1_Constraint_Twist_Sample.vrm
 
 Own .vrm files loaded with the "Įkelti savo .vrm" button keep the licence written
 in their VRM meta data (the page shows it).
+
+-------------------------------------------------------------------------------
+Lithuanian Piper phonemizer (NOT covered by the MIT License above)
+-------------------------------------------------------------------------------
+
+lib/phonemize-lithuanian.mjs
+  JavaScript port of piper/phonemize_lithuanian.py from OHF-Voice/piper1-gpl
+  (https://github.com/OHF-Voice/piper1-gpl). License: GPL-3.0-or-later.
+
+npm @echogarden/espeak-ng-emscripten (espeak-ng as WASM) – GPL-3.0.
+npm onnxruntime-node – MIT, (c) Microsoft.
+
+Stress dictionaries lt_kirciai.tsv, lt_raides.tsv, lt_kreipiniai.tsv
+  From piper1-gpl src/piper/lithuanian/, CC BY 4.0. Downloaded to
+  ~/opt/talking-face/piper/lithuanian/, not stored in this repository.

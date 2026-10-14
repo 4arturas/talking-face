@@ -131,14 +131,22 @@ reply, mostly startup). Piper also needs, in `~/opt/talking-face/piper/`:
   It also maps `ʂ` to the id of `s`: espeak-ng writes some Lithuanian `s` as `ʂ`, which the
   voice never saw in training, so it said "Klaujimas" for "Klausimas" and "Patajau" for
   "Pataisiau" (checked with Whisper). Re-run the script after updating it.
-  Still not done: the voice was trained with Piper's own Lithuanian phonemizer
-  (`phonemize_lithuanian.py`, stress dictionary `lt_kirciai.tsv`); plain espeak puts the
-  stress wrong in about half of the words.
+
+Preferred path, with correct Lithuanian stress (no Python): the voice was trained with
+Piper's own Lithuanian phonemizer (`phonemize_lithuanian.py` + stress dictionary
+`lt_kirciai.tsv`); plain espeak (sherpa) puts the stress wrong in about half of the words.
+`lib/phonemize-lithuanian.mjs` is a JS port of it (GPL-3.0, same output as Python for 404
+test sentences). espeak-ng runs as WASM (`@echogarden/espeak-ng-emscripten`), the model
+through `onnxruntime-node` (`loadPiperOrt()` / `synthPiperOrt()` in `server.mjs`, ~0.4 s per
+reply). It needs the dictionaries in `~/opt/talking-face/piper/lithuanian/` (env
+`PIPER_LT_DICT`), see the commands below. Order at start: onnxruntime + stress →
+sherpa-onnx → Python `piper`. The phoneme id map is read from `<model>.orig.onnx.json` if it
+exists, otherwise from `<model>.onnx.json`.
 
 If these files are missing, the server falls back to Python `piper` (`pip install --user
 piper-tts`), and without that to Edge voices. The startup log says which Piper is used.
-Env vars: `PIPER_MODEL`, `ESPEAK_DATA`. The page falls back to Google Translate TTS only if
-the server is unreachable.
+Env vars: `PIPER_MODEL`, `ESPEAK_DATA`, `PIPER_LT_DICT`. The page falls back to Google
+Translate TTS only if the server is unreachable.
 
 On Windows (PowerShell):
 
@@ -152,6 +160,10 @@ curl.exe -sL --ssl-no-revoke -o "$d\lt_LT-reginute1-medium.onnx.json" "$b.onnx.j
 curl.exe -sL --ssl-no-revoke -o "$d\espeak-ng-data.tar.bz2" "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2"
 tar -xjf "$d\espeak-ng-data.tar.bz2" -C $d; Remove-Item "$d\espeak-ng-data.tar.bz2"
 node tools/piper-to-sherpa.mjs
+# Lithuanian stress dictionaries (CC BY 4.0, from OHF-Voice/piper1-gpl)
+New-Item -ItemType Directory -Force "$d\lithuanian"
+$l = "https://raw.githubusercontent.com/OHF-Voice/piper1-gpl/main/src/piper/lithuanian"
+foreach ($f in 'lt_kirciai.tsv','lt_raides.tsv','lt_kreipiniai.tsv') { curl.exe -sL --ssl-no-revoke -o "$d\lithuanian\$f" "$l/$f" }
 npm start   # http://localhost:3000/talking-face-avatars.html
 ```
 
