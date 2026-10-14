@@ -343,6 +343,11 @@
   <label for="voice">Balsas</label>
   <select id="voice"></select>
   <div id="voiceNote" class="note"></div>
+  <div id="speedRow" style="display:flex;align-items:center;gap:8px;margin-top:8px">
+    <label for="speed" style="margin:0">Greitis</label>
+    <input id="speed" type="range" min="0.5" max="2" step="0.05" value="1" style="flex:1">
+    <span id="speedVal" style="min-width:3.5em;text-align:right">1.00×</span>
+  </div>
 </section>
 </aside>
 
@@ -376,6 +381,12 @@ const els = {
 
 const MOUTH_X = 200, MOUTH_Y = 318;
 const RATE = 1;
+// Kalbėjimo greitis (0.5–2). Bendras visiems puslapiams ir index.html (antd Slider) per localStorage.
+const SPEED_KEY = 'talking-face.speed';
+function ttsSpeed() {
+  const v = Number(localStorage.getItem(SPEED_KEY));
+  return v >= 0.5 && v <= 2 ? v : 1;
+}
 const MS_PER_CHAR = 72;
 const DEFAULT_TEXT = {
   'lt-LT': 'Labas! Aš esu kalbantis veidas. Ar girdi mane?',
@@ -437,7 +448,7 @@ function visemeFor(ch) {
 }
 
 function charDuration(v) {
-  const base = MS_PER_CHAR / RATE;
+  const base = MS_PER_CHAR / (RATE * ttsSpeed());
   return VOWELS.has(v) ? base * 1.35 : base * 0.8;
 }
 
@@ -456,7 +467,7 @@ function schedule(text, t0, withPauses) {
       const pause = /[.,;:?!…]/.test(ch) ? 260 : (/\s/.test(ch) ? 60 : 0);
       if (pause) {
         out.push({ t, v: 'rest' });
-        t += pause / RATE;
+        t += pause / (RATE * ttsSpeed());
       }
     }
   }
@@ -667,13 +678,15 @@ function speakGoogle(text, lang, onDone) {
     const part = parts[i];
     const audio = new Audio('https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob'
       + `&tl=${encodeURIComponent(lang.slice(0, 2))}&q=${encodeURIComponent(part)}`);
+    const speed = ttsSpeed();
+    audio.playbackRate = speed;   // tonas išlieka (preservesPitch)
     state.audio = audio;
     audio.onplaying = () => {
       if (state.utterance !== token) return;
       const now = performance.now();
       const frames = schedule(part, now, true);
       const estimated = frames[frames.length - 1].t - now;
-      const actual = (audio.duration || 0) * 1000;
+      const actual = (audio.duration || 0) * 1000 / speed;
       const k = estimated > 0 && actual > 0 && isFinite(actual) ? actual / estimated : 1;
       frames.forEach(f => { f.t = now + (f.t - now) * k; });
       state.frames = frames;
@@ -708,7 +721,7 @@ function speakLocal(text, lang, onDone, fallback, query = 'engine=auto', label =
     if (state.utterance !== token) return;
     if (i >= parts.length) return finish();
     const part = parts[i];
-    const audio = new Audio(`${ttsBase()}/api/tts?${query}&text=${encodeURIComponent(part)}`);
+    const audio = new Audio(`${ttsBase()}/api/tts?${query}&speed=${ttsSpeed()}&text=${encodeURIComponent(part)}`);
     state.audio = audio;
     audio.onplaying = () => {
       if (state.utterance !== token) return;
@@ -741,7 +754,7 @@ function speakNative(text, lang, voice) {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = lang;
   if (voice) u.voice = voice;
-  u.rate = RATE;
+  u.rate = RATE * ttsSpeed();
 
   // Senos (atšauktos) frazės įvykiai ignoruojami.
   u.onstart = () => {
@@ -1062,6 +1075,20 @@ $('lang').addEventListener('change', () => {
   if (Object.values(DEFAULT_TEXT).includes(ta.value.trim())) ta.value = DEFAULT_TEXT[$('lang').value];
   fillVoices();
 });
+
+// Greičio slankiklis. Index.html viduje jį rodo antd Slider viršuje, todėl čia paslepiamas.
+function showSpeed() {
+  const v = ttsSpeed();
+  $('speed').value = v;
+  $('speedVal').textContent = `${v.toFixed(2)}×`;
+}
+if (window.top !== window) $('speedRow').style.display = 'none';
+showSpeed();
+$('speed').addEventListener('input', () => {
+  localStorage.setItem(SPEED_KEY, $('speed').value);
+  showSpeed();
+});
+window.addEventListener('storage', e => { if (e.key === SPEED_KEY) showSpeed(); });
 
 $('voice').addEventListener('change', () => {
   localStorage.setItem(VOICE_KEY + $('lang').value, $('voice').value);

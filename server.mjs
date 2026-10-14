@@ -5,7 +5,7 @@
  *   - patiekia projekto HTML puslapius (kaip python -m http.server), kad būtų
  *     vienas adresas:  http://localhost:3000/  (index.html: visi puslapiai tabuose)
  *   - suteikia /api/tts balsus:
- *       GET /api/tts?text=...&engine=auto|piper|edge&voice=lt-LT-OnaNeural
+ *       GET /api/tts?text=...&engine=auto|piper|edge&voice=lt-LT-OnaNeural&speed=0.5..2
  *     engine=auto (numatytasis): pirma bandoma Piper (offline, patikimas),
  *     jei nepavyksta – Microsoft Edge balsai per npm paketą msedge-tts (internete).
  *
@@ -196,30 +196,31 @@ function padMp3(buf) {
 }
 
 let tmpSeq = 0;
-async function synthPiper(text) {
+async function synthPiper(text, speed = 1) {
   const trimmed = text.trim();
   // Tarpas pradžioje – kitaip Piper gali „nukąsti" pirmą garsą.
   const input = ` ${/[.!?…]$/.test(trimmed) ? trimmed : `${trimmed}.`}`;
   if (sherpaTts) {
-    const a = await sherpaTts.generateAsync({ text: input, sid: 0, speed: 1 });
+    const a = await sherpaTts.generateAsync({ text: input, sid: 0, speed });
     return toWav(a.samples, a.sampleRate);
   }
   // Windows: Piper `-f -` meta PermissionError (temp failas atidaromas du kartus),
   // todėl rašome į savo laikiną failą ir jį perskaitome.
   const out = IS_WIN ? path.join(os.tmpdir(), `tts-${process.pid}-${++tmpSeq}.wav`) : '-';
-  return run(PIPER_CMD[0], [...PIPER_CMD.slice(1), '-m', PIPER_MODEL, '-f', out], input,
+  return run(PIPER_CMD[0], [...PIPER_CMD.slice(1), '-m', PIPER_MODEL, '--length-scale', String(1 / speed), '-f', out], input,
     IS_WIN ? out : null);
 }
 
 const escapeXml = s => s.replace(/[<>&"']/g, c =>
   ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
 
-async function synthEdge(text, voice) {
+async function synthEdge(text, voice, speed = 1) {
   const tts = new MsEdgeTTS();
   try {
     await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
     // Tarpas pradžioje, kaip ir Piper – kad nenukąstų pirmo skiemens.
-    const { audioStream } = tts.toStream(escapeXml(` ${text.trim()}`));
+    const { audioStream } = tts.toStream(escapeXml(` ${text.trim()}`),
+      { rate: `${speed >= 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%` });
     const chunks = [];
     await new Promise((resolve, reject) => {
       audioStream.on('data', d => chunks.push(d));
@@ -252,19 +253,21 @@ function handleTts(req, res, url) {
   const engine = (url.searchParams.get('engine') || 'auto').toLowerCase();
   const voice = EDGE_VOICES[url.searchParams.get('voice')] ? url.searchParams.get('voice') : 'lt-LT-OnaNeural';
   const cors = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
+  // Kalbėjimo greitis: 1 = įprastas, 0.5–2.
+  const speed = Math.min(2, Math.max(0.5, Number(url.searchParams.get('speed')) || 1));
 
   const job = enqueue(async () => {
     try {
       let buf, type;
       if (engine === 'piper') {
-        buf = await synthPiper(text); type = 'audio/wav';
+        buf = await synthPiper(text, speed); type = 'audio/wav';
       } else if (engine === 'edge') {
-        buf = await synthEdge(text, voice); type = 'audio/mpeg';
+        buf = await synthEdge(text, voice, speed); type = 'audio/mpeg';
       } else {  // auto
         try {
-          buf = await synthPiper(text); type = 'audio/wav';
+          buf = await synthPiper(text, speed); type = 'audio/wav';
         } catch (piperErr) {
-          buf = await synthEdge(text, voice); type = 'audio/mpeg';
+          buf = await synthEdge(text, voice, speed); type = 'audio/mpeg';
         }
       }
       buf = type === 'audio/wav' ? padWav(buf) : padMp3(buf);

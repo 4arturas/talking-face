@@ -112,6 +112,13 @@ Each page has a **"Balsas"** select under "Kalba". It is filled from `/api/voice
 languages. The choice is saved in `localStorage` (`talking-face.voice.<lang>`). Code:
 `fillVoices()`, `speakChosen()`, `loadServerVoices()` in each page.
 
+Speech speed: `localStorage['talking-face.speed']` (0.5–2, default 1), read by `ttsSpeed()`
+before every phrase. `index.html` sets it with an antd `Slider` in the tab bar
+(`SpeedControl`); a page opened on its own has a plain range input "Greitis" (hidden inside
+the iframe). Applied as: browser voice `u.rate`, Google `audio.playbackRate`, server
+`/api/tts?...&speed=` (Piper/sherpa `speed`, Python piper `--length-scale 1/speed`, Edge
+SSML `rate="+NN%"`). The lip schedule is scaled to the real audio length, so it stays in sync.
+
 Needed: `npm install` in the project root. It installs `msedge-tts` (Edge voices) and
 `sherpa-onnx-node`, which runs Piper inside Node – **no Python**. The model is loaded once
 at server start (~1.5 s), then a reply takes ~0.2–0.5 s (Python `piper` took ~3 s per

@@ -69,7 +69,8 @@ Ollama pokalbiui pasiekiamas tiesiai iš `localhost:8000` (CORS), proksiuoti ner
 
 `server.mjs` (šaknyje) – vienintelis Node failas; npm paketas `msedge-tts` (Edge balsai).
 
-- `GET /api/tts?text=...&engine=auto|piper|edge&voice=lt-LT-OnaNeural`
+- `GET /api/tts?text=...&engine=auto|piper|edge&voice=lt-LT-OnaNeural&speed=1`
+  - `speed` 0.5–2: Piper (sherpa `speed`, Python `--length-scale`), Edge (SSML `rate`).
   - `engine=auto` (numatytas): pirma `piper`, jei klaida → `edge-tts`; jei ir tai – HTTP 503.
   - `piper`: per npm `sherpa-onnx-node` (Node, be Python): `OfflineTts` sukuriamas vieną kartą
     paleidžiant serverį (`loadSherpa()`, ~1,5 s), atsakymas ~0,2–0,5 s; WAV koduoja `toWav()`
@@ -155,6 +156,7 @@ Padaryta:
 - [x] Visi 3 puslapiai: vietinis → natyvus → Google prioritetas
 - [x] `talking-face-vrm.html`: VRM avataras (Seed-san, Twist sample, savas .vrm)
 - [x] Nukirpta kalbos pradžia (BT): tyla `TTS_LEAD_MS` serveryje + lūpų poslinkis puslapiuose
+- [x] Kalbėjimo greitis: antd `Slider` `index.html` + `localStorage['talking-face.speed']`, `/api/tts` `speed`
 
 Planuojama / lieka:
 - [ ] Naršyklės funkcinis testas su realiu garso atkūrimu (Playwright neįdiegtas – savininkas atsisakė).

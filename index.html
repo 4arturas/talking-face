@@ -14,11 +14,11 @@
   <script type="module">
     import React from "https://esm.sh/react@19";
     import { createRoot } from "https://esm.sh/react-dom@19/client";
-    import { Tabs } from "https://esm.sh/antd@6.4.4?bundle";
+    import { Tabs, Slider } from "https://esm.sh/antd@6.4.4?bundle";
 
     globalThis.React = React;
     globalThis.ReactDOM = { createRoot };
-    globalThis.antd = { Tabs };
+    globalThis.antd = { Tabs, Slider };
     window.dispatchEvent(new Event('libs-ready'));
   </script>
   <style>
@@ -29,6 +29,9 @@
     .app .ant-tabs { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .app .ant-tabs-nav { margin: 0 !important; padding: 0 16px; }
     .app .ant-tabs-content-holder, .app .ant-tabs-content, .app .ant-tabs-tabpane { flex: 1; min-height: 0; height: 100%; }
+    .speed { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; }
+    .speed .ant-slider { margin-bottom: 18px; }
+    .speed-val { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
     .page-frame { display: block; width: 100%; height: 100%; border: 0; }
   </style>
 </head>
@@ -47,6 +50,31 @@
   function keyFromHash() {
     const k = location.hash.slice(1);
     return PAGES.some(p => p.key === k) ? k : DEFAULT_KEY;
+  }
+
+  // Kalbėjimo greitis: puslapiai (iframe) jį skaito iš localStorage prieš kiekvieną frazę.
+  const SPEED_KEY = 'talking-face.speed';
+  function savedSpeed() {
+    const v = Number(localStorage.getItem(SPEED_KEY));
+    return v >= 0.5 && v <= 2 ? v : 1;
+  }
+
+  function SpeedControl() {
+    const { Slider } = antd;
+    const [speed, setSpeed] = React.useState(savedSpeed);
+    const change = v => { setSpeed(v); localStorage.setItem(SPEED_KEY, String(v)); };
+    return (
+      <div className="speed">
+        <span>Greitis</span>
+        <Slider
+          min={0.5} max={2} step={0.05} value={speed} onChange={change}
+          marks={{ 0.5: '0.5×', 1: '1×', 1.5: '1.5×', 2: '2×' }}
+          tooltip={{ formatter: v => `${v.toFixed(2)}×` }}
+          style={{ width: 220 }}
+        />
+        <span className="speed-val">{speed.toFixed(2)}×</span>
+      </div>
+    );
   }
 
   function App() {
@@ -78,6 +106,7 @@
           activeKey={active}
           items={items}
           destroyOnHidden
+          tabBarExtraContent={<SpeedControl />}
           onChange={k => { history.replaceState(null, '', '#' + k); setActive(k); }}
         />
       </div>
