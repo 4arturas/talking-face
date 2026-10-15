@@ -268,6 +268,10 @@
   <select id="avatar">
     <option value="avaturn" selected>Avaturn – fotorealistinis 3D žmogus (13,8 MB)</option>
     <option value="avatarsdk">AvatarSDK – 3D veidas iš nuotraukos (12,3 MB)</option>
+    <option value="aurora">Aurora – Ready Player Me (3,9 MB)</option>
+    <option value="celeste">Celeste – Ready Player Me (4,4 MB)</option>
+    <option value="lyra">Lyra – Ready Player Me (2,9 MB)</option>
+    <option value="vroid">VRoid – anime stilius (2,2 MB)</option>
     <option value="saule">Saulė – Ready Player Me (5,1 MB)</option>
     <option value="brunette">Brunetė – Ready Player Me (4,7 MB)</option>
   </select>
@@ -396,12 +400,20 @@ const BASE = 'https://raw.githubusercontent.com/met4citizen/TalkingHead/cf170209
 const AVATARS = {
   avaturn:   'Avaturn – fotorealistinis 3D žmogaus skenas su pažangia PBR optika.',
   avatarsdk: 'AvatarSDK – tikroviškas veido modelis iš nuotraukos.',
+  aurora:    'Aurora – Ready Player Me modelis.',
+  celeste:   'Celeste – Ready Player Me modelis.',
+  lyra:      'Lyra – Ready Player Me modelis.',
+  vroid:     'VRoid – anime stiliaus modelis.',
   saule:     'Saulė – autorinis Ready Player Me modelis (šviesūs plaukai).',
   brunette:  'Brunetė – klasikinis Ready Player Me modelis.'
 };
 const LOCAL_AVATARS = {
   avaturn:   'avatars/avaturn.glb',
   avatarsdk: 'avatars/avatarsdk.glb',
+  aurora:    'avatars/aurora.glb',
+  celeste:   'avatars/celeste.glb',
+  lyra:      'avatars/lyra.glb',
+  vroid:     'avatars/vroid.glb',
   saule:     'avatars/saule.glb',
   brunette:  'avatars/brunette.glb'
 };
@@ -455,8 +467,10 @@ class AudioFormantEngine {
       if (this.ctx.state !== 'running') this.ctx.resume();
       if (!audio._sourceNode) {
         audio._sourceNode = this.ctx.createMediaElementSource(audio);
+        // Garsas tiesiai į išvestį, o analizatorius tik skaito spektrą.
+        // (Analizatorius nėra jungiamas į išvestį – kitaip mikrofonas girdėtųsi.)
         audio._sourceNode.connect(this.analyser);
-        this.analyser.connect(this.ctx.destination);
+        audio._sourceNode.connect(this.ctx.destination);
       }
     } catch (e) {
       // CORS arba jau prijungtas mazgas
@@ -688,6 +702,7 @@ setupPostProcessing();
 /* ---------- 3. Odos SSS ir ragenos PBR patobulinimai ---------- */
 
 function injectSubsurfaceScattering(material) {
+  material.userData.sssInjected = true;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSssIntensity = { value: 0.48 };
     shader.uniforms.uSssColor = { value: new THREE.Color(0xd95738) }; // šiltas hemoglobino atspalvis
@@ -710,6 +725,13 @@ function injectSubsurfaceScattering(material) {
       `
     );
   };
+  material.needsUpdate = true;
+}
+
+function removeSubsurfaceScattering(material) {
+  if (!material.userData.sssInjected) return;
+  material.onBeforeCompile = () => {};
+  material.userData.sssInjected = false;
   material.needsUpdate = true;
 }
 
@@ -808,6 +830,7 @@ function upgradeRealisticMaterials(root) {
         pMat.sheenRoughness = 0.5;
         pMat.specularIntensity = 0.85;
         if (state.useSss) injectSubsurfaceScattering(pMat);
+        else removeSubsurfaceScattering(pMat);
       } else if (isEye) {
         pMat.roughness = 0.02;
         pMat.metalness = 0.0;
@@ -941,11 +964,11 @@ view.addEventListener('pointermove', e => {
 
 const VISEMES = {
   sil: {},
-  aa: { viseme_aa: 0.60, jawOpen: 0.12 },
-  O:  { viseme_O: 0.65, jawOpen: 0.08, mouthPucker: 0.25 },
-  U:  { viseme_U: 0.65, jawOpen: 0.04, mouthPucker: 0.40 },
-  E:  { viseme_E: 0.55, jawOpen: 0.06, mouthStretch: 0.18 },
-  I:  { viseme_I: 0.55, jawOpen: 0.02, mouthStretch: 0.22 },
+  aa: { viseme_aa: 0.46, jawOpen: 0.08 },
+  O:  { viseme_O: 0.50, jawOpen: 0.05, mouthPucker: 0.25 },
+  U:  { viseme_U: 0.50, jawOpen: 0.03, mouthPucker: 0.40 },
+  E:  { viseme_E: 0.44, jawOpen: 0.05, mouthStretch: 0.18 },
+  I:  { viseme_I: 0.44, jawOpen: 0.02, mouthStretch: 0.22 },
   PP: { viseme_PP: 0.95, mouthPress: 0.20, jawOpen: 0.0 }, // m, b, p – lūpos sandariai susispaudžia!
   FF: { viseme_FF: 0.85, mouthRollLower: 0.12, jawOpen: 0.02 }, // f, v – dantys ant lūpos!
   DD: { viseme_DD: 0.70, jawOpen: 0.04 }, // t, d – burna beveik užverta
@@ -1098,16 +1121,25 @@ function updateMouth(now, dt) {
     const scheduled = visemeAt(now);
     Object.assign(target, scheduled);
 
-    // Jei FFT analizatorius įjungtas ir groja garsas, patikriname garsumo lygį
+    // Jei FFT analizatorius įjungtas ir groja garsas, burnos formą formuoja
+    // tiesiogiai garso spektras (F1 → žandikaulis, F2 → lūpų ištempimas,
+    // aukšti dažniai → frikatyvai), o ne vien raidžių spėjimas.
     if (state.useFft && state.audio) {
       const f = formantEngine.update();
       // Pauzėse tarp žodžių burna visiškai užveriama
       if (f.rms < 0.006) {
         for (const k of MOUTH_KEYS) target[k] = 0;
       } else {
-        const volMod = Math.min(1.15, Math.max(0.7, f.rms * 12));
-        if (target.jawOpen) target.jawOpen *= volMod;
-        if (target.viseme_aa) target.viseme_aa *= volMod;
+        // FFT tik švelniai koreguoja tekstinę burnos formą – nepriverčia plačiai atsidaryti
+        const vol = Math.min(1.0, Math.max(0.6, f.rms * 9));
+        if (target.jawOpen) target.jawOpen *= vol;
+        if (target.viseme_aa) target.viseme_aa *= vol;
+        target.mouthStretch = Math.max(target.mouthStretch || 0, f.spreadTarget * 0.16);
+        target.viseme_E = Math.max(target.viseme_E || 0, f.spreadTarget * 0.14);
+        target.mouthPucker = Math.max(target.mouthPucker || 0, f.puckerTarget * 0.18);
+        if (f.sibilance > 0.22) {
+          target.viseme_SS = Math.max(target.viseme_SS || 0, Math.min(0.5, f.sibilance * 0.7));
+        }
       }
     }
   }

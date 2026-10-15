@@ -52,6 +52,15 @@ avatars/avatarsdk.glb
   created with AvatarSDK by itseez3D (https://avatarsdk.com/).
   License: CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/).
 
+avatars/aurora.glb, avatars/celeste.glb, avatars/lyra.glb
+  Ready Player Me avatars (https://readyplayer.me/).
+  License: CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/).
+  Non-commercial use only. Keep this attribution when you share it.
+
+avatars/vroid.glb
+  Created with VRoid Studio (https://vroid.com/).
+  License: per the VRoid Studio terms of use (non-commercial unless stated).
+
 Avatars loaded at runtime from the TalkingHead repository are not part of this
 repository and keep their own licenses (mostly CC BY-NC 4.0).
 

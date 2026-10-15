@@ -12,9 +12,10 @@
     Modeliai turi Oculus vizemų (viseme_aa, viseme_PP ...) ir ARKit (eyeBlinkLeft, jawOpen ...) formas
     bei Mixamo skeletą (Head, Neck, LeftEye ...). Juos valdome patys: kalba – naršyklės speechSynthesis,
     burna – pagal raides (onstart/onboundary/onend), mikrofono režime – pagal garsumą (RMS).
-  - Licencijos: brunette, brunette-t, saule (perdažyta brunette), avaturn, avatarsdk, vroid – tik nekomerciniam naudojimui (CC BY-NC 4.0 ir pan.);
+  - Licencijos: brunette, brunette-t, aurora, celeste, lyra, saule (perdažyta brunette), avaturn, avatarsdk, vroid – tik nekomerciniam naudojimui (CC BY-NC 4.0 ir pan.);
     mpfb (MakeHuman) – CC0.
   - Reikia interneto: three.js iš cdn.jsdelivr.net, modeliai iš raw.githubusercontent.com (2–37 MB).
+    Savi modeliai (ona, saule, aurora, celeste, lyra, avaturn, avatarsdk, brunette, vroid) kraunami iš avatars/ – reikia localhost.
   - Kalba veikia per file://. Mikrofonui gali reikėti localhost:
         python -m http.server 8000   ->   http://localhost:8000/talking-face-avatars.html
 -->
@@ -153,9 +154,12 @@
   <select id="avatar">
     <option value="brunette">Brunetė (Ready Player Me, 4,7 MB)</option>
     <option value="brunette-t">Brunetė, T poza (Ready Player Me, 2,9 MB)</option>
+    <option value="aurora">Aurora (Ready Player Me, 3,9 MB)</option>
+    <option value="celeste">Celeste (Ready Player Me, 4,4 MB)</option>
+    <option value="lyra">Lyra (Ready Player Me, 2,9 MB)</option>
     <option value="avaturn">Avaturn (13,8 MB)</option>
     <option value="avatarsdk">AvatarSDK (12,3 MB)</option>
-    <option value="vroid">VRoid, anime (2,3 MB)</option>
+    <option value="vroid">VRoid, anime (2,2 MB)</option>
     <option value="mpfb">MakeHuman / MPFB (36,8 MB)</option>
     <option value="ona">Ona – savas, MPFB (12,3 MB)</option>
     <option value="saule">Saulė – sava, Ready Player Me (5,1 MB)</option>
@@ -219,9 +223,12 @@ const BASE = 'https://raw.githubusercontent.com/met4citizen/TalkingHead/cf170209
 const AVATARS = {
   brunette:  '',
   'brunette-t': 'T poza (rankos nuleidžiamos kode).',
+  aurora:    'Ready Player Me avataras.',
+  celeste:   'Ready Player Me avataras.',
+  lyra:      'Ready Player Me avataras.',
   avaturn:   '',
   avatarsdk: '',
-  vroid:     '',
+  vroid:     'VRoid Studio modelis.',
   mpfb:      '',
   ona:       'Savas avataras (blender/make_avatar.py, MPFB). Reikia localhost.',
   saule:     'Perdažyta Brunetė (tools/make_rpm_variant.py): šviesūs plaukai, be akinių. Reikia localhost.'
@@ -231,7 +238,11 @@ const LOCAL_AVATARS = {
   saule: 'avatars/saule.glb',
   avaturn: 'avatars/avaturn.glb',
   avatarsdk: 'avatars/avatarsdk.glb',
-  brunette: 'avatars/brunette.glb'
+  brunette: 'avatars/brunette.glb',
+  aurora: 'avatars/aurora.glb',
+  celeste: 'avatars/celeste.glb',
+  lyra: 'avatars/lyra.glb',
+  vroid: 'avatars/vroid.glb'
 };
 
 const $ = id => document.getElementById(id);
